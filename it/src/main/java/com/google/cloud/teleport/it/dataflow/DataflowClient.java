@@ -15,6 +15,7 @@
  */
 package com.google.cloud.teleport.it.dataflow;
 
+import com.google.api.services.dataflow.model.Job;
 import com.google.auto.value.AutoValue;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -23,8 +24,8 @@ import java.util.HashMap;
 import java.util.Map;
 import javax.annotation.Nullable;
 
-/** Client for working with Flex templates. */
-public interface DataflowTemplateClient {
+/** Client for working with Cloud Dataflow. */
+public interface DataflowClient {
   /** Enum representing known Dataflow job states. */
   enum JobState {
     UNKNOWN("JOB_STATE_UNKNOWN"),
@@ -43,9 +44,14 @@ public interface DataflowTemplateClient {
 
     private static final String DATAFLOW_PREFIX = "JOB_STATE_";
 
+
+    /** States that indicate the job is getting ready to run. */
+    public static final ImmutableSet<JobState> PENDING_STATES =
+        ImmutableSet.of(PENDING, QUEUED);
+
     /** States that indicate the job is running or getting ready to run. */
     public static final ImmutableSet<JobState> ACTIVE_STATES =
-        ImmutableSet.of(RUNNING, UPDATED, PENDING, QUEUED);
+        ImmutableSet.of(RUNNING, UPDATED);
 
     /** States that indicate that the job is done. */
     public static final ImmutableSet<JobState> DONE_STATES =
@@ -76,16 +82,22 @@ public interface DataflowTemplateClient {
     }
   }
 
-  /** Config for starting a Dataflow job. */
+  /** Config for starting a Dataflow template job. */
   class LaunchConfig {
     private final String jobName;
     private final ImmutableMap<String, String> parameters;
     private final String specPath;
+    private final String sdk;
+    private final String executable;
+    private final String classname;
 
     private LaunchConfig(Builder builder) {
-      this.jobName = builder.jobName;
-      this.parameters = ImmutableMap.copyOf(builder.parameters);
-      this.specPath = builder.specPath;
+      this.jobName = builder.getJobName();
+      this.parameters = ImmutableMap.copyOf(builder.getParameters());
+      this.specPath = builder.getSpecPath();
+      this.sdk = builder.getSdk();
+      this.executable = builder.getExecutable();
+      this.classname = builder.getClassname();
     }
 
     public String jobName() {
@@ -96,33 +108,56 @@ public interface DataflowTemplateClient {
       return parameters;
     }
 
+    @Nullable
+    public String getParameter(String key) {
+      return parameters.get(key);
+    }
+
     public String specPath() {
       return specPath;
     }
 
-    public static Builder builder(String jobName, String specPath) {
-      return new Builder(jobName, specPath);
+    public String sdk() {
+      return sdk;
+    }
+
+    public String executable() {
+      return executable;
+    }
+
+    public String classname() {
+      return classname;
+    }
+
+    public static Builder builder(String jobName) {
+      return new Builder(jobName);
     }
 
     /** Builder for the {@link LaunchConfig}. */
     public static final class Builder {
       private final String jobName;
-      private final Map<String, String> parameters;
-      private final String specPath;
+      private Map<String, String> parameters;
+      private String specPath;
+      private String sdk;
+      private String executable;
+      private String classname;
 
-      private Builder(String jobName, String specPath) {
+      private Builder(String jobName) {
         this.jobName = jobName;
         this.parameters = new HashMap<>();
-        this.specPath = specPath;
       }
 
       public String getJobName() {
         return jobName;
       }
 
-      @Nullable
-      public String getParameter(String key) {
-        return parameters.get(key);
+      public Map<String, String> getParameters() {
+        return parameters;
+      }
+
+      public Builder setParameters(Map<String, String> value) {
+        this.parameters = value;
+        return this;
       }
 
       public Builder addParameter(String key, String value) {
@@ -130,8 +165,44 @@ public interface DataflowTemplateClient {
         return this;
       }
 
+      @Nullable
       public String getSpecPath() {
         return specPath;
+      }
+
+      public Builder setSpecPath(String specPath) {
+        this.specPath = specPath;
+        return this;
+      }
+
+      @Nullable
+      public String getSdk() {
+        return sdk;
+      }
+
+      public Builder setSdk(String sdk) {
+        this.sdk = sdk;
+        return this;
+      }
+
+      @Nullable
+      public String getExecutable() {
+        return executable;
+      }
+
+      public Builder setExecutable(String executable) {
+        this.executable = executable;
+        return this;
+      }
+
+      @Nullable
+      public String getClassname() {
+        return classname;
+      }
+
+      public Builder setClassname(String classname) {
+        this.classname = classname;
+        return this;
       }
 
       public LaunchConfig build() {
@@ -147,8 +218,26 @@ public interface DataflowTemplateClient {
 
     public abstract JobState state();
 
+    public abstract String startTime();
+
+    public abstract String sdk();
+
+    public abstract String version();
+
+    public abstract String jobType();
+
+    public abstract String runner();
+
+    @Nullable  public abstract String templateName();
+
+    @Nullable  public abstract String templateType();
+
+    @Nullable public abstract String templateVersion();
+
+    public abstract ImmutableMap<String, String> parameters();
+
     public static Builder builder() {
-      return new AutoValue_DataflowTemplateClient_JobInfo.Builder();
+      return new AutoValue_DataflowClient_JobInfo.Builder();
     }
 
     /** Builder for {@link JobInfo}. */
@@ -158,12 +247,30 @@ public interface DataflowTemplateClient {
 
       public abstract Builder setState(JobState value);
 
+      public abstract Builder setStartTime(String value);
+
+      public abstract Builder setSdk(String value);
+
+      public abstract Builder setVersion(String value);
+
+      public abstract Builder setJobType(String value);
+
+      public abstract Builder setRunner(String value);
+
+      public abstract Builder setTemplateName(String value);
+
+      public abstract Builder setTemplateType(String value);
+
+      public abstract Builder setTemplateVersion(String value);
+
+      public abstract Builder setParameters(ImmutableMap<String, String> value);
+
       public abstract JobInfo build();
     }
   }
 
   /**
-   * Launches a new job.
+   * Launches a new dataflow template job.
    *
    * @param project the project to run the job in
    * @param region the region to run the job in (e.g. us-east1)
@@ -172,6 +279,29 @@ public interface DataflowTemplateClient {
    * @throws IOException if there is an issue sending the request
    */
   JobInfo launchTemplate(String project, String region, LaunchConfig options) throws IOException;
+
+  /**
+   * Launches a new dataflow job.
+   *
+   * @param project the project to run the job in
+   * @param region the region to run the job in (e.g. us-east1)
+   * @param options options for configuring the job
+   * @return info about the request to launch a new job
+   * @throws IOException if there is an issue sending the request
+   */
+  JobInfo launchJob(String project, String region, LaunchConfig options)
+      throws IOException, InterruptedException;
+
+  /**
+   * Gets information of a job.
+   *
+   * @param project the project that the job is running under
+   * @param region the region that the job was launched in
+   * @param jobId the id of the job
+   * @return job information
+   * @throws IOException if there is an issue sending the request
+   */
+  Job getJob(String project, String region, String jobId) throws IOException;
 
   /**
    * Gets the current status of a job.
@@ -193,4 +323,26 @@ public interface DataflowTemplateClient {
    * @throws IOException if there is an issue sending the request
    */
   void cancelJob(String project, String region, String jobId) throws IOException;
+
+  /**
+   * Drains the given job.
+   *
+   * @param project the project that the job is running under
+   * @param region the region that the job was launched in
+   * @param jobId the id of the job to cancel
+   * @throws IOException if there is an issue sending the request
+   */
+  void drainJob(String project, String region, String jobId) throws IOException;
+
+  /**
+   * Get all metrics of the given job.
+   *
+   * @param project the project that the job is running under
+   * @param region the region that the job was launched in
+   * @param jobId jobId of the job
+   * @return all metrics of the given job
+   * @throws IOException if there is an issue sending the request
+   */
+  Map<String, Double> getMetrics(String project, String region, String jobId)
+      throws IOException;
 }

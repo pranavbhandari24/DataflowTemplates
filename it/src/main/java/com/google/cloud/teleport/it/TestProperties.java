@@ -38,12 +38,17 @@ public final class TestProperties {
 
   // From command line
   public static final String ARTIFACT_BUCKET_KEY = "artifactBucket";
-  public static final String PROJECT_KEY = "project";
-  public static final String REGION_KEY = "region";
+  public static final String CONNECTION_URL = "connectionUrl";
+  public static final String EXPORT_DATASET_KEY = "exportDataset";
+  public static final String EXPORT_TABLE_KEY = "exportTable";
+  public static final String PASSWORD_KEY = "password";
   public static final String SPEC_PATH_KEY = "specPath";
+  public static final String USERNAME_KEY = "username";
 
   // From environment variables
   public static final String ACCESS_TOKEN_KEY = "DT_IT_ACCESS_TOKEN";
+  public static final String PROJECT_KEY = "PROJECT";
+  public static final String REGION_KEY = "REGION";
 
   // Default values for optional properties
   public static final String DEFAULT_REGION = "us-central1";
@@ -64,17 +69,38 @@ public final class TestProperties {
     return getProperty(ARTIFACT_BUCKET_KEY, Type.PROPERTY);
   }
 
+  public static String connectionUrl() {
+    return getProperty(CONNECTION_URL, Type.PROPERTY);
+  }
+
+  public static String exportDataset() {
+    return getProperty(EXPORT_DATASET_KEY, Type.PROPERTY);
+  }
+
+  public static String exportTable() {
+    return getProperty(EXPORT_TABLE_KEY, Type.PROPERTY);
+  }
+
+  public static String password() {
+    return getProperty(PASSWORD_KEY, Type.PROPERTY);
+  }
+
   public static String project() {
-    return getProperty(PROJECT_KEY, Type.PROPERTY);
+    return getProperty(PROJECT_KEY, Type.ENVIRONMENT_VARIABLE);
   }
 
   public static String region() {
-    return getProperty(REGION_KEY, DEFAULT_REGION, Type.PROPERTY);
+    return getProperty(REGION_KEY, DEFAULT_REGION, Type.ENVIRONMENT_VARIABLE);
+  }
+  
+  public static String specPath() {
+    return getProperty(SPEC_PATH_KEY, null, Type.PROPERTY);
   }
 
-  public static String specPath() {
-    return getProperty(SPEC_PATH_KEY, Type.PROPERTY);
+  public static String username() {
+    return getProperty(USERNAME_KEY, Type.PROPERTY);
   }
+
 
   /** Gets a property or throws an exception if it is not found. */
   private static String getProperty(String name, Type type) {

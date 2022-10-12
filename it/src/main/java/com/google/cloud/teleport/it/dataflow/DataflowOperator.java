@@ -18,7 +18,7 @@ package com.google.cloud.teleport.it.dataflow;
 import static com.google.common.base.Preconditions.checkState;
 
 import com.google.auto.value.AutoValue;
-import com.google.cloud.teleport.it.dataflow.DataflowTemplateClient.JobState;
+import com.google.cloud.teleport.it.dataflow.DataflowClient.JobState;
 import com.google.common.base.Strings;
 import java.io.IOException;
 import java.time.Duration;
@@ -38,9 +38,9 @@ public final class DataflowOperator {
     TIMEOUT
   }
 
-  private final DataflowTemplateClient client;
+  private final DataflowClient client;
 
-  public DataflowOperator(DataflowTemplateClient client) {
+  public DataflowOperator(DataflowClient client) {
     this.client = client;
   }
 
@@ -91,7 +91,7 @@ public final class DataflowOperator {
       throws IOException {
     Result conditionStatus = waitForCondition(config, conditionCheck);
     if (conditionStatus != Result.JOB_FINISHED) {
-      client.cancelJob(config.project(), config.region(), config.jobId());
+      client.drainJob(config.project(), config.region(), config.jobId());
       waitUntilDone(config);
     }
     return conditionStatus;

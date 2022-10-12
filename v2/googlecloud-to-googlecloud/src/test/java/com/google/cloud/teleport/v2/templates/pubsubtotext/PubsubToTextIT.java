@@ -28,15 +28,16 @@ import com.google.cloud.teleport.it.TestProperties;
 import com.google.cloud.teleport.it.artifacts.Artifact;
 import com.google.cloud.teleport.it.artifacts.ArtifactClient;
 import com.google.cloud.teleport.it.artifacts.GcsArtifactClient;
+import com.google.cloud.teleport.it.dataflow.DataflowClient;
+import com.google.cloud.teleport.it.dataflow.DataflowClient.JobInfo;
+import com.google.cloud.teleport.it.dataflow.DataflowClient.JobState;
+import com.google.cloud.teleport.it.dataflow.DataflowClient.LaunchConfig;
 import com.google.cloud.teleport.it.dataflow.DataflowOperator;
 import com.google.cloud.teleport.it.dataflow.DataflowOperator.Result;
-import com.google.cloud.teleport.it.dataflow.DataflowTemplateClient;
-import com.google.cloud.teleport.it.dataflow.DataflowTemplateClient.JobInfo;
-import com.google.cloud.teleport.it.dataflow.DataflowTemplateClient.JobState;
-import com.google.cloud.teleport.it.dataflow.DataflowTemplateClient.LaunchConfig;
-import com.google.cloud.teleport.it.dataflow.FlexTemplateClient;
+import com.google.cloud.teleport.it.dataflow.DefaultDataflowClient;
 import com.google.cloud.teleport.it.pubsub.DefaultPubsubResourceManager;
 import com.google.cloud.teleport.it.pubsub.PubsubResourceManager;
+import com.google.common.base.MoreObjects;
 import com.google.common.collect.ImmutableMap;
 import com.google.protobuf.ByteString;
 import com.google.pubsub.v1.SubscriptionName;
@@ -66,8 +67,9 @@ public final class PubsubToTextIT {
       FixedCredentialsProvider.create(CREDENTIALS);
   private static final String PROJECT = TestProperties.project();
   private static final String REGION = TestProperties.region();
-  private static final String SPEC_PATH = TestProperties.specPath();
-
+  private static final String SPEC_PATH = MoreObjects.firstNonNull(
+      "gs://dataflow-templates/latest/flex/Cloud_PubSub_to_GCS_Text_Flex",
+      TestProperties.specPath());
   private static final String TEST_ROOT_DIR = PubsubToTextIT.class.getSimpleName();
 
   private static final String INPUT_TOPIC = "inputTopic";
@@ -110,15 +112,16 @@ public final class PubsubToTextIT {
 
     TopicName topic = pubsubResourceManager.createTopic("input");
     LaunchConfig options =
-        LaunchConfig.builder(jobName, SPEC_PATH)
+        LaunchConfig.builder(jobName)
+            .setSpecPath(SPEC_PATH)
             .addParameter(INPUT_TOPIC, topic.toString())
             .addParameter(WINDOW_DURATION_KEY, DEFAULT_WINDOW_DURATION)
             .addParameter(OUTPUT_DIRECTORY_KEY, getTestMethodDirPath(name))
             .addParameter(NUM_SHARDS_KEY, "1")
             .addParameter(OUTPUT_FILENAME_PREFIX, "topic-output-")
             .build();
-    DataflowTemplateClient dataflow =
-        FlexTemplateClient.builder().setCredentials(CREDENTIALS).build();
+    DataflowClient dataflow =
+        DefaultDataflowClient.builder().setCredentials(CREDENTIALS).build();
 
     // Act
     JobInfo info = dataflow.launchTemplate(PROJECT, REGION, options);
@@ -162,15 +165,16 @@ public final class PubsubToTextIT {
     SubscriptionName subscription = pubsubResourceManager.createSubscription(topic, jobName + "-1");
 
     LaunchConfig options =
-        LaunchConfig.builder(jobName, SPEC_PATH)
+        LaunchConfig.builder(jobName)
+            .setSpecPath(SPEC_PATH)
             .addParameter(INPUT_SUBSCRIPTION, subscription.toString())
             .addParameter(WINDOW_DURATION_KEY, DEFAULT_WINDOW_DURATION)
             .addParameter(OUTPUT_DIRECTORY_KEY, getTestMethodDirPath(name))
             .addParameter(NUM_SHARDS_KEY, "1")
             .addParameter(OUTPUT_FILENAME_PREFIX, "subscription-output-")
             .build();
-    DataflowTemplateClient dataflow =
-        FlexTemplateClient.builder().setCredentials(CREDENTIALS).build();
+    DataflowClient dataflow =
+        DefaultDataflowClient.builder().setCredentials(CREDENTIALS).build();
 
     // Act
     JobInfo info = dataflow.launchTemplate(PROJECT, REGION, options);
