@@ -26,13 +26,13 @@ import com.google.cloud.teleport.it.TestProperties;
 import com.google.cloud.teleport.it.artifacts.Artifact;
 import com.google.cloud.teleport.it.artifacts.ArtifactClient;
 import com.google.cloud.teleport.it.artifacts.GcsArtifactClient;
+import com.google.cloud.teleport.it.dataflow.DataflowClient;
+import com.google.cloud.teleport.it.dataflow.DataflowClient.JobInfo;
+import com.google.cloud.teleport.it.dataflow.DataflowClient.JobState;
+import com.google.cloud.teleport.it.dataflow.DataflowClient.LaunchConfig;
 import com.google.cloud.teleport.it.dataflow.DataflowOperator;
 import com.google.cloud.teleport.it.dataflow.DataflowOperator.Result;
-import com.google.cloud.teleport.it.dataflow.DataflowTemplateClient;
-import com.google.cloud.teleport.it.dataflow.DataflowTemplateClient.JobInfo;
-import com.google.cloud.teleport.it.dataflow.DataflowTemplateClient.JobState;
-import com.google.cloud.teleport.it.dataflow.DataflowTemplateClient.LaunchConfig;
-import com.google.cloud.teleport.it.dataflow.FlexTemplateClient;
+import com.google.cloud.teleport.it.dataflow.DefaultDataflowClient;
 import com.google.cloud.teleport.v2.templates.StreamingDataGenerator.SinkType;
 import com.google.common.io.Resources;
 import com.google.re2j.Pattern;
@@ -93,7 +93,8 @@ public final class StreamingDataGeneratorIT {
     String jobName = createJobName(name);
 
     LaunchConfig options =
-        LaunchConfig.builder(jobName, SPEC_PATH)
+        LaunchConfig.builder(jobName)
+            .setSpecPath(SPEC_PATH)
             // TODO(zhoufek): See if it is possible to use the properties interface and generate
             // the map from the set values.
             .addParameter(SCHEMA_LOCATION_KEY, getGcsSchemaLocation(SCHEMA_FILE))
@@ -103,8 +104,8 @@ public final class StreamingDataGeneratorIT {
             .addParameter(OUTPUT_DIRECTORY_KEY, getTestMethodDirPath(name))
             .addParameter(NUM_SHARDS_KEY, "1")
             .build();
-    DataflowTemplateClient dataflow =
-        FlexTemplateClient.builder().setCredentials(CREDENTIALS).build();
+    DataflowClient dataflow =
+        DefaultDataflowClient.builder().setCredentials(CREDENTIALS).build();
 
     // Act
     JobInfo info = dataflow.launchTemplate(PROJECT, REGION, options);
