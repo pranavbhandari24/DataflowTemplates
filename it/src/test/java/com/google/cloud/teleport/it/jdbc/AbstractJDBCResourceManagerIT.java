@@ -78,6 +78,7 @@ public class AbstractJDBCResourceManagerIT {
   private <T extends AbstractJDBCResourceManager<?>> void simpleTest(T rm) {
     try {
       Map<String, String> columns = new LinkedHashMap<>();
+      columns.put("id", "INTEGER");
       columns.put("first", "VARCHAR(32)");
       columns.put("last", "VARCHAR(32)");
       columns.put("age", "VARCHAR(32)");
@@ -91,7 +92,6 @@ public class AbstractJDBCResourceManagerIT {
       rm.write(TABLE_NAME, rows, ImmutableList.of());
 
       List<String> validateSchema = new ArrayList<>(columns.keySet());
-      validateSchema.add(schema.getIdColumn());
       List<Map<String, Object>> fetchRows = rm.readTable(TABLE_NAME);
 
       // toUpperCase expected because some databases (Postgres, Oracle) transform column names

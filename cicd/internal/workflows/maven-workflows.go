@@ -109,6 +109,10 @@ func (*mvnFlags) RunIntegrationTests() string {
 	return "-PtemplatesIntegrationTests"
 }
 
+func (*mvnFlags) RunLoadTests() string {
+	return "-PtemplatesLoadTests"
+}
+
 func (*mvnFlags) ThreadCount(count int) string {
 	return "-T" + strconv.Itoa(count)
 }

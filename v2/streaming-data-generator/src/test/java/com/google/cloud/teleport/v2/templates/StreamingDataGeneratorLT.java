@@ -34,6 +34,9 @@ import com.google.cloud.teleport.it.artifacts.GcsArtifactClient;
 import com.google.cloud.teleport.it.bigquery.BigQueryResourceManager;
 import com.google.cloud.teleport.it.bigquery.DefaultBigQueryResourceManager;
 import com.google.cloud.teleport.it.common.ResourceManagerUtils;
+import com.google.cloud.teleport.it.jdbc.DefaultMSSQLResourceManager;
+import com.google.cloud.teleport.it.jdbc.JDBCResourceManager;
+import com.google.cloud.teleport.it.jdbc.JDBCResourceManager.JDBCSchema;
 import com.google.cloud.teleport.it.launcher.PipelineLauncher.LaunchConfig;
 import com.google.cloud.teleport.it.launcher.PipelineLauncher.LaunchInfo;
 import com.google.cloud.teleport.it.launcher.PipelineOperator.Result;
@@ -49,8 +52,10 @@ import com.google.pubsub.v1.SubscriptionName;
 import com.google.pubsub.v1.TopicName;
 import com.google.re2j.Pattern;
 import java.io.IOException;
+import java.sql.SQLException;
 import java.text.ParseException;
 import java.time.Duration;
+import java.util.Map;
 import org.junit.After;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -72,11 +77,16 @@ public class StreamingDataGeneratorLT extends TemplateLoadTestBase {
   private static ArtifactClient artifactClient;
   private static BigQueryResourceManager bigQueryResourceManager;
   private static SpannerResourceManager spannerResourceManager;
+  private static JDBCResourceManager jdbcResourceManager;
 
   @After
   public void cleanup() {
     ResourceManagerUtils.cleanResources(
-        pubsubResourceManager, artifactClient, bigQueryResourceManager, spannerResourceManager);
+        pubsubResourceManager,
+        artifactClient,
+        bigQueryResourceManager,
+        spannerResourceManager,
+        jdbcResourceManager);
   }
 
   @Test
@@ -248,6 +258,65 @@ public class StreamingDataGeneratorLT extends TemplateLoadTestBase {
     // Assert
     assertThatResult(result).isLaunchFinished();
     assertThat(spannerResourceManager.readTableRecords(name, columnNames)).isNotEmpty();
+    // export results
+    exportMetricsToBigQuery(info, getMetrics(info, FAKE_DATA_PCOLLECTION));
+  }
+
+  @Test
+  public void testGenerateJdbc10gb()
+      throws IOException, ParseException, InterruptedException, SQLException {
+    jdbcResourceManager = DefaultMSSQLResourceManager.builder(testName).setHost(HOST_IP).build();
+    JDBCSchema jdbcSchema =
+        new JDBCSchema(
+            Map.of(
+                "eventId", "VARCHAR(100)",
+                "eventTimestamp", "DATETIME",
+                "ipv4", "VARCHAR(100)",
+                "ipv6", "VARCHAR(100)",
+                "country", "VARCHAR(100)",
+                "username", "VARCHAR(100)",
+                "quest", "VARCHAR(100)",
+                "score", "INTEGER",
+                "completed", "BIT"),
+            "eventId");
+    jdbcResourceManager.createTable(testName, jdbcSchema);
+    String statement =
+        String.format(
+            "INSERT INTO %s (eventId,eventTimestamp,ipv4,ipv6,country,username,quest,score,completed) VALUES (?,DATEADD(SECOND,?/1000,'1970-1-1'),?,?,?,?,?,?,?)",
+            testName);
+    String driverClassName = "com.microsoft.sqlserver.jdbc.SQLServerDriver";
+    // Arrange
+    LaunchConfig options =
+        LaunchConfig.builder(testName, SPEC_PATH)
+            .addParameter("schemaTemplate", SchemaTemplate.GAME_EVENT.name())
+            .addParameter("qps", "1000000")
+            .addParameter("messagesLimit", NUM_MESSAGES)
+            .addParameter("sinkType", "JDBC")
+            .addParameter("driverClassName", driverClassName)
+            .addParameter("connectionUrl", jdbcResourceManager.getUri())
+            .addParameter("statement", statement)
+            .addParameter("username", jdbcResourceManager.getUsername())
+            .addParameter("password", jdbcResourceManager.getPassword())
+            .addParameter("numWorkers", "50")
+            .addParameter("maxNumWorkers", "100")
+            .addParameter("autoscalingAlgorithm", "THROUGHPUT_BASED")
+            .build();
+
+    // Act
+    LaunchInfo info = pipelineLauncher.launch(PROJECT, REGION, options);
+    assertThatPipeline(info).isRunning();
+    Result result = pipelineOperator.waitUntilDone(createConfig(info, Duration.ofMinutes(60)));
+
+    // Assert
+    assertThatResult(result).isLaunchFinished();
+    assertThat(
+            jdbcResourceManager
+                .runSQLQuery(
+                    String.format(
+                        "SELECT COUNT(*) FROM %s.%s",
+                        jdbcResourceManager.getDatabaseName(), testName))
+                .getInt(0))
+        .isAtLeast(Integer.valueOf(NUM_MESSAGES));
     // export results
     exportMetricsToBigQuery(info, getMetrics(info, FAKE_DATA_PCOLLECTION));
   }

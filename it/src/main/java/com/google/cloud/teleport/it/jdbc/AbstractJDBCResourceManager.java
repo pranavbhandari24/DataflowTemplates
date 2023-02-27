@@ -207,6 +207,7 @@ public abstract class AbstractJDBCResourceManager<T extends JdbcDatabaseContaine
       }
       sql.append(" VALUES ");
 
+      List<String> rowsToInsert = new ArrayList<>();
       for (Integer rowId : rows.keySet()) {
         StringBuilder valueList = new StringBuilder("(");
 
@@ -301,10 +302,20 @@ public abstract class AbstractJDBCResourceManager<T extends JdbcDatabaseContaine
   }
 
   @Override
-  public synchronized ResultSet runSQLStatement(String sql) {
+  public synchronized ResultSet runSQLQuery(String sql) {
     try (Connection con = driver.getConnection(getUri(), username, password)) {
       Statement stmt = con.createStatement();
       return stmt.executeQuery(sql);
+    } catch (Exception e) {
+      throw new JDBCResourceManagerException("Failed to execute SQL statement: " + sql, e);
+    }
+  }
+
+  @Override
+  public synchronized void runSQLUpdate(String sql) {
+    try (Connection con = driver.getConnection(getUri(), username, password)) {
+      Statement stmt = con.createStatement();
+      stmt.executeUpdate(sql);
     } catch (Exception e) {
       throw new JDBCResourceManagerException("Failed to execute SQL statement: " + sql, e);
     }
