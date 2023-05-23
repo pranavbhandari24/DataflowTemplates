@@ -45,11 +45,15 @@ import org.apache.beam.sdk.options.Default;
 import org.apache.beam.sdk.options.PipelineOptions;
 import org.apache.beam.sdk.options.PipelineOptionsFactory;
 import org.apache.beam.sdk.options.Validation.Required;
+import org.apache.beam.sdk.transforms.Count;
 import org.apache.beam.sdk.transforms.DoFn;
 import org.apache.beam.sdk.transforms.PTransform;
 import org.apache.beam.sdk.transforms.ParDo;
+import org.apache.beam.sdk.transforms.windowing.AfterPane;
 import org.apache.beam.sdk.transforms.windowing.FixedWindows;
+import org.apache.beam.sdk.transforms.windowing.Repeatedly;
 import org.apache.beam.sdk.transforms.windowing.Window;
+import org.apache.beam.sdk.values.KV;
 import org.apache.beam.sdk.values.PCollection;
 import org.apache.beam.sdk.values.PDone;
 import org.apache.beam.vendor.guava.v26_0_jre.com.google.common.annotations.VisibleForTesting;
@@ -99,7 +103,7 @@ public class StreamingDataGenerator {
         order = 1,
         regexes = {"^[1-9][0-9]*$"},
         description = "Required output rate",
-        helpText = "Indicates rate of messages per second to be published to Pub/Sub")
+        helpText = "Indicates rate of messages per second to be generated.")
     @Required
     Long getQps();
 
@@ -375,6 +379,26 @@ public class StreamingDataGenerator {
     String getSpannerTableName();
 
     void setSpannerTableName(String spannerTableName);
+
+    @TemplateParameter.Text(
+        order = 26,
+        regexes = {"^[1-9][0-9]*$"},
+        description = "Max output rate. Used for spiky workloads.",
+        helpText = "Indicates the max rate of messages per second to be generated.")
+    @Required
+    Long getMaxQps();
+
+    void setMaxQps(Long value);
+
+    @TemplateParameter.Text(
+        order = 27,
+        regexes = {"^[1-9][0-9]*$"},
+        description = "Interval of increase in QPS to max QPS.",
+        helpText = "Indicates the duration between spikes in QPS.")
+    @Required
+    Long getMaxQpsIntervalMinutes();
+
+    void setMaxQpsIntervalMinutes(Long value);
   }
 
   /** Allowed list of existing schema templates. */
@@ -518,6 +542,28 @@ public class StreamingDataGenerator {
             .apply("Trigger", createTrigger(options))
             .apply("Generate Fake Messages", ParDo.of(new MessageGeneratorFn(schema)));
 
+    PCollection<byte[]> spikyTrigger =
+        pipeline
+            .apply(
+                "Trigger Spiky Workload",
+                GenerateSequence.from(0L)
+                    .withRate(
+                        (options.getMaxQps() - options.getQps()) * 60,
+                        Duration.standardMinutes(options.getMaxQpsIntervalMinutes())))
+            .apply(
+                "Window",
+                Window.<Long>into(
+                        FixedWindows.of(
+                            Duration.standardMinutes(options.getMaxQpsIntervalMinutes())))
+                    .triggering(
+                        Repeatedly.forever(
+                            AfterPane.elementCountAtLeast(
+                                (int) ((options.getMaxQps() - options.getQps()) * 60))))
+                    .withAllowedLateness(Duration.ZERO)
+                    .discardingFiredPanes())
+            .apply("Buffer elements", new BufferElements())
+            .apply("Generate Fake Messages", ParDo.of(new MessageGeneratorFn(schema)));
+
     if (options.getSinkType().equals(SinkType.GCS)) {
       generatedMessages =
           generatedMessages.apply(
@@ -528,6 +574,8 @@ public class StreamingDataGenerator {
 
     generatedMessages.apply(
         "Write To " + options.getSinkType().name(), createSink(options, schema));
+    spikyTrigger.apply(
+        "Spiky Writes To " + options.getSinkType().name(), createSink(options, schema));
 
     return pipeline.run();
   }
@@ -546,6 +594,24 @@ public class StreamingDataGenerator {
     return options.getMessagesLimit() > 0
         ? generateSequence.to(options.getMessagesLimit())
         : generateSequence;
+  }
+
+  private static class BufferElements extends PTransform<PCollection<Long>, PCollection<Long>> {
+
+    @Override
+    public PCollection<Long> expand(PCollection<Long> input) {
+      return input
+          .apply("Count", Count.<Long>perElement())
+          .apply(
+              "Extract Key",
+              ParDo.of(
+                  new DoFn<KV<Long, Long>, Long>() {
+                    @ProcessElement
+                    public void processElement(ProcessContext ctx) {
+                      ctx.output(ctx.element().getKey());
+                    }
+                  }));
+    }
   }
 
   /**

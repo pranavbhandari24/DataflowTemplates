@@ -176,6 +176,17 @@ public class PubSubToBigQuery {
     String getOutputDeadletterTable();
 
     void setOutputDeadletterTable(String value);
+
+
+    // TODO(pranavbhandari): Remove this.
+    @TemplateParameter.Text(
+        order = 5,
+        optional = true,
+        description = "Worker disk type",
+        helpText = "Worker disk type")
+    String getWorkerDiskType();
+
+    void setWorkerDiskType(String value);
   }
 
   /**

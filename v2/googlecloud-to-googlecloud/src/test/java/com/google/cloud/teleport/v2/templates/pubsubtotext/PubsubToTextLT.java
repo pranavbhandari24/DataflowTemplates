@@ -31,6 +31,7 @@ import com.google.cloud.teleport.it.gcp.TemplateLoadTestBase;
 import com.google.cloud.teleport.it.gcp.artifacts.ArtifactClient;
 import com.google.cloud.teleport.it.gcp.artifacts.GcsArtifactClient;
 import com.google.cloud.teleport.it.gcp.datagenerator.DataGenerator;
+import com.google.cloud.teleport.it.gcp.datagenerator.DataGenerator.AutoscalingAlgorithmType;
 import com.google.cloud.teleport.it.gcp.pubsub.PubsubResourceManager;
 import com.google.cloud.teleport.metadata.TemplateLoadTest;
 import com.google.common.base.MoreObjects;
@@ -145,6 +146,18 @@ public final class PubsubToTextLT extends TemplateLoadTestBase {
     testSteadyState1hr(config -> config.addParameter("experiments", "enable_prime"));
   }
 
+  @Test
+  public void testSpikyWorkloads1hr() throws ParseException, IOException, InterruptedException {
+    testSpikyWorkload1hr(Function.identity());
+  }
+
+  @Test
+  public void testSpikyWorkloads1hrUsingStreamingEngine() throws ParseException, IOException, InterruptedException {
+    testSpikyWorkload1hr(config -> config.addEnvironment("enableStreamingEngine", true)
+        .addEnvironment("workerMachineType", "e2-standard-4"));
+  }
+
+
   public void testBacklog10gb(Function<LaunchConfig.Builder, LaunchConfig.Builder> paramsAdder)
       throws IOException, InterruptedException, ParseException {
     // Arrange
@@ -209,6 +222,54 @@ public final class PubsubToTextLT extends TemplateLoadTestBase {
         paramsAdder
             .apply(
                 LaunchConfig.builder(testName, SPEC_PATH)
+                    .addParameter(INPUT_SUBSCRIPTION, subscription.toString())
+                    .addParameter(WINDOW_DURATION_KEY, DEFAULT_WINDOW_DURATION)
+                    .addParameter(OUTPUT_DIRECTORY_KEY, getTestMethodDirPath())
+                    .addParameter(NUM_SHARDS_KEY, "20")
+                    .addParameter(OUTPUT_FILENAME_PREFIX, "subscription-output-")
+                    .addParameter(NUM_WORKERS_KEY, "10"))
+            .build();
+
+    // Act
+    LaunchInfo info = pipelineLauncher.launch(project, region, options);
+    assertThatPipeline(info).isRunning();
+    // ElementCount metric in dataflow is approximate, allow for 1% difference
+    long expectedMessages = (long) (dataGenerator.execute(Duration.ofMinutes(60)) * 0.99);
+    Result result =
+        pipelineOperator.waitForConditionAndFinish(
+            createConfig(info, Duration.ofMinutes(20)),
+            () -> waitForNumMessages(info.jobId(), INPUT_PCOLLECTION, expectedMessages));
+    // Assert
+    assertThatResult(result).meetsConditions();
+    assertThat(gcsClient.listArtifacts(name, EXPECTED_PATTERN)).isNotEmpty();
+
+    // export results
+    exportMetricsToBigQuery(info, getMetrics(info, INPUT_PCOLLECTION, OUTPUT_PCOLLECTION));
+  }
+
+  public void testSpikyWorkload1hr(Function<LaunchConfig.Builder, LaunchConfig.Builder> paramsAdder)
+      throws IOException, InterruptedException, ParseException {
+    // Arrange
+    String name = testName;
+    TopicName topic = pubsubResourceManager.createTopic(testName + "input");
+    SubscriptionName subscription =
+        pubsubResourceManager.createSubscription(topic, "input-subscription");
+    DataGenerator dataGenerator =
+        DataGenerator.builderWithSchemaTemplate(testName, "GAME_EVENT")
+            .setQPS("100000")
+            .setMaxQps("125000")
+            .setMaxQpsIntervalMinutes("15")
+            .setTopic(topic.toString())
+            // The pipeline downscales based on throughput leading to slowness during spikes
+            .setNumWorkers("20")
+            .setAutoscalingAlgorithm(AutoscalingAlgorithmType.NONE)
+            .build();
+    LaunchConfig options =
+        paramsAdder
+            .apply(
+                LaunchConfig.builder(testName, SPEC_PATH)
+                    .addEnvironment("maxWorkers", 100)
+                    .addParameter("workerDiskType", "compute.googleapis.com/projects/apache-beam-testing/zones/us-central1-a/diskTypes/pd-ssd")
                     .addParameter(INPUT_SUBSCRIPTION, subscription.toString())
                     .addParameter(WINDOW_DURATION_KEY, DEFAULT_WINDOW_DURATION)
                     .addParameter(OUTPUT_DIRECTORY_KEY, getTestMethodDirPath())

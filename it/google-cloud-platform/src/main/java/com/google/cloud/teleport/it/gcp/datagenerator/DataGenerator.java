@@ -37,8 +37,9 @@ import org.slf4j.LoggerFactory;
 /** Helper class for starting a Streaming Data generator dataflow template job. */
 public class DataGenerator {
   private static final Logger LOG = LoggerFactory.getLogger(DataGenerator.class);
+  // TODO (pranavbhandari): Change this.
   private static final String SPEC_PATH =
-      "gs://dataflow-templates/latest/flex/Streaming_Data_Generator";
+      "gs://apache-beam-testing-pranavbhandari/spikyWorkloads/flex/Streaming_Data_Generator";
   private static final String PROJECT = TestProperties.project();
   private static final String REGION = TestProperties.region();
   private static final Credentials CREDENTIALS = TestProperties.googleCredentials();
@@ -145,6 +146,16 @@ public class DataGenerator {
 
     public DataGenerator.Builder setQPS(String value) {
       parameters.put("qps", value);
+      return this;
+    }
+
+    public DataGenerator.Builder setMaxQps(String value) {
+      parameters.put("maxQps", value);
+      return this;
+    }
+
+    public DataGenerator.Builder setMaxQpsIntervalMinutes(String value) {
+      parameters.put("maxQpsIntervalMinutes", value);
       return this;
     }
 

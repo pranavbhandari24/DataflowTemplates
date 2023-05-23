@@ -13,7 +13,7 @@
  * License for the specific language governing permissions and limitations under
  * the License.
  */
-package com.google.cloud.teleport.templates;
+package com.google.cloud.teleport.v2.templates;
 
 import static com.google.cloud.teleport.it.common.matchers.TemplateAsserts.assertThatPipeline;
 import static com.google.cloud.teleport.it.common.matchers.TemplateAsserts.assertThatResult;
@@ -128,7 +128,7 @@ public class PubsubToBigQueryLT extends TemplateLoadTestBase {
   public void testSpikyWorkloads1hrUsingStreamingEngine() throws ParseException, IOException, InterruptedException {
     testSpikyWorkload1hr(config -> config.addEnvironment("enableStreamingEngine", true)
         .addEnvironment("machineType", "e2-standard-4")
-        .addEnvironment("numWorkers", 22));
+        .addEnvironment("numWorkers", 5));
   }
 
   public void testBacklog10gb(Function<LaunchConfig.Builder, LaunchConfig.Builder> paramsAdder)
