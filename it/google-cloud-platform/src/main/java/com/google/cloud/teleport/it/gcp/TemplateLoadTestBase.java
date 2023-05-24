@@ -16,13 +16,19 @@
 package com.google.cloud.teleport.it.gcp;
 
 import com.google.cloud.teleport.it.common.PipelineLauncher;
+import com.google.cloud.teleport.it.common.PipelineLauncher.LaunchConfig;
 import com.google.cloud.teleport.it.gcp.dataflow.ClassicTemplateClient;
 import com.google.cloud.teleport.it.gcp.dataflow.FlexTemplateClient;
 import com.google.cloud.teleport.metadata.Template;
 import com.google.cloud.teleport.metadata.TemplateLoadTest;
+import java.util.Collections;
+import java.util.List;
 
 /** Base class for Templates Load Tests. */
 public class TemplateLoadTestBase extends LoadTestBase {
+
+  protected static final List<String> MACHINE_TYPES =
+      List.of("n1-standard-1", "n1-standard-2", "n1-standard-4", "e2-standard-2", "e2-standard-4");
 
   PipelineLauncher launcher() {
     // If there is a TemplateLoadTest annotation, return appropriate dataflow template client
@@ -47,5 +53,12 @@ public class TemplateLoadTestBase extends LoadTestBase {
     } else {
       return ClassicTemplateClient.builder().setCredentials(CREDENTIALS).build();
     }
+  }
+
+  protected LaunchConfig.Builder singleWorkerTest(LaunchConfig.Builder config) {
+    return config
+        .addEnvironment("numWorkers", 1)
+        .addEnvironment("maxWorkers", 1)
+        .addEnvironment("additionalExperiments", Collections.singletonList("disable_runner_v2"));
   }
 }

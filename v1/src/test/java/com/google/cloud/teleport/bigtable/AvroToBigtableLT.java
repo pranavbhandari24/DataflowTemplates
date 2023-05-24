@@ -100,8 +100,8 @@ public class AvroToBigtableLT extends TemplateLoadTestBase {
   }
 
   @Test
-  public void testBacklog10gb() throws IOException, ParseException, InterruptedException {
-    testBacklog10gb(Function.identity());
+  public void testBacklog10gb1Worker() throws IOException, ParseException, InterruptedException {
+    testBacklog10gb(this::singleWorkerTest);
   }
 
   public void testBacklog10gb(Function<LaunchConfig.Builder, LaunchConfig.Builder> paramsAdder)
@@ -124,28 +124,31 @@ public class AvroToBigtableLT extends TemplateLoadTestBase {
             .setMaxNumWorkers("100")
             .build();
     dataGenerator.execute(Duration.ofMinutes(30));
-    LaunchConfig options =
-        paramsAdder
-            .apply(
-                LaunchConfig.builder(testName, SPEC_PATH)
-                    .addParameter("bigtableProjectId", project)
-                    .addParameter("bigtableInstanceId", bigtableResourceManager.getInstanceId())
-                    .addParameter("bigtableTableId", tableId)
-                    .addParameter("inputFilePattern", getTestMethodDirPath() + "/*"))
-            .build();
+    for (String machineType : MACHINE_TYPES) {
+      LaunchConfig options =
+          paramsAdder
+              .apply(
+                  LaunchConfig.builder(testName, SPEC_PATH)
+                      .addParameter("bigtableProjectId", project)
+                      .addParameter("bigtableInstanceId", bigtableResourceManager.getInstanceId())
+                      .addParameter("bigtableTableId", tableId)
+                      .addParameter("inputFilePattern", getTestMethodDirPath() + "/*")
+                      .addEnvironment("machineType", machineType))
+              .build();
 
-    // Act
-    LaunchInfo info = pipelineLauncher.launch(project, region, options);
-    assertThatPipeline(info).isRunning();
-    Result result = pipelineOperator.waitUntilDone(createConfig(info, Duration.ofMinutes(60)));
+      // Act
+      LaunchInfo info = pipelineLauncher.launch(project, region, options);
+      assertThatPipeline(info).isRunning();
+      Result result = pipelineOperator.waitUntilDone(createConfig(info, Duration.ofMinutes(60)));
 
-    // Assert
-    assertThatResult(result).isLaunchFinished();
-    // check to see if messages reached the output bigtable table
-    assertThat(bigtableResourceManager.readTable(tableId)).isNotEmpty();
+      // Assert
+      assertThatResult(result).isLaunchFinished();
+      // check to see if messages reached the output bigtable table
+      assertThat(bigtableResourceManager.readTable(tableId)).isNotEmpty();
 
-    // export results
-    exportMetricsToBigQuery(info, getMetrics(info, INPUT_PCOLLECTION, OUTPUT_PCOLLECTION));
+      // export results
+      exportMetricsToBigQuery(info, getMetrics(info, INPUT_PCOLLECTION, OUTPUT_PCOLLECTION));
+    }
   }
 
   private String getTestMethodDirPath() {

@@ -95,8 +95,8 @@ public final class PubsubToTextLT extends TemplateLoadTestBase {
   }
 
   @Test
-  public void testBacklog10gb() throws IOException, InterruptedException, ParseException {
-    testBacklog10gb(Function.identity());
+  public void testBacklog10gb1Worker() throws IOException, InterruptedException, ParseException {
+    testBacklog10gb(this::singleWorkerTest);
   }
 
   @Ignore("Ignore Streaming Engine tests by default.")
@@ -163,32 +163,35 @@ public final class PubsubToTextLT extends TemplateLoadTestBase {
             .setMaxNumWorkers("100")
             .build();
     dataGenerator.execute(Duration.ofMinutes(30));
-    LaunchConfig options =
-        paramsAdder
-            .apply(
-                LaunchConfig.builder(testName, SPEC_PATH)
-                    .addParameter(INPUT_SUBSCRIPTION, backlogSubscription.toString())
-                    .addParameter(WINDOW_DURATION_KEY, DEFAULT_WINDOW_DURATION)
-                    .addParameter(OUTPUT_DIRECTORY_KEY, getTestMethodDirPath())
-                    .addParameter(NUM_SHARDS_KEY, "20")
-                    .addParameter(OUTPUT_FILENAME_PREFIX, "subscription-output-")
-                    .addParameter(NUM_WORKERS_KEY, "20"))
-            .build();
+    for (String machineType : MACHINE_TYPES) {
+      LaunchConfig options =
+          paramsAdder
+              .apply(
+                  LaunchConfig.builder(testName, SPEC_PATH)
+                      .addParameter(INPUT_SUBSCRIPTION, backlogSubscription.toString())
+                      .addParameter(WINDOW_DURATION_KEY, DEFAULT_WINDOW_DURATION)
+                      .addParameter(OUTPUT_DIRECTORY_KEY, getTestMethodDirPath())
+                      .addParameter(NUM_SHARDS_KEY, "20")
+                      .addParameter(OUTPUT_FILENAME_PREFIX, "subscription-output-")
+                      .addParameter(NUM_WORKERS_KEY, "20")
+                      .addEnvironment("machineType", machineType))
+              .build();
 
-    // Act
-    LaunchInfo info = pipelineLauncher.launch(project, region, options);
-    assertThatPipeline(info).isRunning();
-    Result result =
-        pipelineOperator.waitForConditionAndFinish(
-            createConfig(info, Duration.ofMinutes(30)),
-            () -> waitForNumMessages(info.jobId(), INPUT_PCOLLECTION, NUM_MESSAGES));
+      // Act
+      LaunchInfo info = pipelineLauncher.launch(project, region, options);
+      assertThatPipeline(info).isRunning();
+      Result result =
+          pipelineOperator.waitForConditionAndFinish(
+              createConfig(info, Duration.ofMinutes(30)),
+              () -> waitForNumMessages(info.jobId(), INPUT_PCOLLECTION, NUM_MESSAGES));
 
-    // Assert
-    assertThatResult(result).meetsConditions();
-    assertThat(gcsClient.listArtifacts(name, EXPECTED_PATTERN)).isNotEmpty();
+      // Assert
+      assertThatResult(result).meetsConditions();
+      assertThat(gcsClient.listArtifacts(name, EXPECTED_PATTERN)).isNotEmpty();
 
-    // export results
-    exportMetricsToBigQuery(info, getMetrics(info, INPUT_PCOLLECTION, OUTPUT_PCOLLECTION));
+      // export results
+      exportMetricsToBigQuery(info, getMetrics(info, INPUT_PCOLLECTION, OUTPUT_PCOLLECTION));
+    }
   }
 
   public void testSteadyState1hr(Function<LaunchConfig.Builder, LaunchConfig.Builder> paramsAdder)

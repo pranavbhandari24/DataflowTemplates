@@ -99,8 +99,8 @@ public class TextIOtoBigQueryLT extends TemplateLoadTestBase {
   }
 
   @Test
-  public void testBacklog10gb() throws IOException, ParseException, InterruptedException {
-    testBacklog10gb(Function.identity());
+  public void testBacklog10gb1Worker() throws IOException, ParseException, InterruptedException {
+    testBacklog10gb(this::singleWorkerTest);
   }
 
   @Ignore("Test fails, sickbay")
@@ -147,31 +147,34 @@ public class TextIOtoBigQueryLT extends TemplateLoadTestBase {
             .setMaxNumWorkers("100")
             .build();
     dataGenerator.execute(Duration.ofMinutes(30));
-    LaunchConfig options =
-        paramsAdder
-            .apply(
-                LaunchConfig.builder(testName, SPEC_PATH)
-                    .addParameter("JSONPath", jsonPath)
-                    .addParameter("inputFilePattern", getTestMethodDirPath() + "/*")
-                    .addParameter("outputTable", toTableSpec(project, table))
-                    .addParameter("javascriptTextTransformGcsPath", udfPath)
-                    .addParameter("javascriptTextTransformFunctionName", "identity")
-                    .addParameter(
-                        "bigQueryLoadingTemporaryDirectory", getTestMethodDirPath() + "/temp"))
-            .build();
+    for (String machineType : MACHINE_TYPES) {
+      LaunchConfig options =
+          paramsAdder
+              .apply(
+                  LaunchConfig.builder(testName, SPEC_PATH)
+                      .addParameter("JSONPath", jsonPath)
+                      .addParameter("inputFilePattern", getTestMethodDirPath() + "/*")
+                      .addParameter("outputTable", toTableSpec(project, table))
+                      .addParameter("javascriptTextTransformGcsPath", udfPath)
+                      .addParameter("javascriptTextTransformFunctionName", "identity")
+                      .addParameter(
+                          "bigQueryLoadingTemporaryDirectory", getTestMethodDirPath() + "/temp")
+                      .addEnvironment("machineType", machineType))
+              .build();
 
-    // Act
-    LaunchInfo info = pipelineLauncher.launch(project, region, options);
-    assertThatPipeline(info).isRunning();
+      // Act
+      LaunchInfo info = pipelineLauncher.launch(project, region, options);
+      assertThatPipeline(info).isRunning();
 
-    Result result = pipelineOperator.waitUntilDone(createConfig(info, Duration.ofMinutes(30)));
+      Result result = pipelineOperator.waitUntilDone(createConfig(info, Duration.ofMinutes(30)));
 
-    // Assert
-    assertThatResult(result).isLaunchFinished();
-    assertThat(bigQueryResourceManager.getRowCount(table.getTable())).isAtLeast(NUM_MESSAGES);
+      // Assert
+      assertThatResult(result).isLaunchFinished();
+      assertThat(bigQueryResourceManager.getRowCount(table.getTable())).isAtLeast(NUM_MESSAGES);
 
-    // export results
-    exportMetricsToBigQuery(info, getMetrics(info, INPUT_PCOLLECTION, OUTPUT_PCOLLECTION));
+      // export results
+      exportMetricsToBigQuery(info, getMetrics(info, INPUT_PCOLLECTION, OUTPUT_PCOLLECTION));
+    }
   }
 
   private String getTestMethodDirPath() {

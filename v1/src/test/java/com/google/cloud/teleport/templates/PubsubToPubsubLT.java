@@ -74,8 +74,8 @@ public class PubsubToPubsubLT extends TemplateLoadTestBase {
   }
 
   @Test
-  public void testBacklog10gb() throws IOException, ParseException, InterruptedException {
-    testBacklog10gb(Function.identity());
+  public void testBacklog10gb1Worker() throws IOException, ParseException, InterruptedException {
+    testBacklog10gb(this::singleWorkerTest);
   }
 
   @Ignore("Ignore Streaming Engine tests by default.")
@@ -116,37 +116,40 @@ public class PubsubToPubsubLT extends TemplateLoadTestBase {
             .setMaxNumWorkers("100")
             .build();
     dataGenerator.execute(Duration.ofMinutes(30));
-    LaunchConfig options =
-        paramsAdder
-            .apply(
-                LaunchConfig.builder(testName, SPEC_PATH)
-                    .addEnvironment("maxWorkers", 100)
-                    .addParameter("inputSubscription", backlogSubscription.toString())
-                    .addParameter("outputTopic", outputTopic.toString()))
-            .build();
+    for (String machineType : MACHINE_TYPES) {
+      LaunchConfig options =
+          paramsAdder
+              .apply(
+                  LaunchConfig.builder(testName, SPEC_PATH)
+                      .addEnvironment("maxWorkers", 100)
+                      .addParameter("inputSubscription", backlogSubscription.toString())
+                      .addParameter("outputTopic", outputTopic.toString())
+                      .addEnvironment("machineType", machineType))
+              .build();
 
-    // Act
-    LaunchInfo info = pipelineLauncher.launch(project, region, options);
-    assertThatPipeline(info).isRunning();
-    Result result =
-        pipelineOperator.waitForConditionAndFinish(
-            createConfig(info, Duration.ofMinutes(60)),
-            () -> {
-              Long currentMessages =
-                  monitoringClient.getNumMessagesInSubscription(
-                      project, outputSubscription.getSubscription());
-              LOG.info(
-                  "Found {} messages in output subscription, expected {} messages.",
-                  currentMessages,
-                  NUM_MESSAGES);
-              return currentMessages != null && currentMessages >= NUM_MESSAGES;
-            });
+      // Act
+      LaunchInfo info = pipelineLauncher.launch(project, region, options);
+      assertThatPipeline(info).isRunning();
+      Result result =
+          pipelineOperator.waitForConditionAndFinish(
+              createConfig(info, Duration.ofMinutes(60)),
+              () -> {
+                Long currentMessages =
+                    monitoringClient.getNumMessagesInSubscription(
+                        project, outputSubscription.getSubscription());
+                LOG.info(
+                    "Found {} messages in output subscription, expected {} messages.",
+                    currentMessages,
+                    NUM_MESSAGES);
+                return currentMessages != null && currentMessages >= NUM_MESSAGES;
+              });
 
-    // Assert
-    assertThatResult(result).meetsConditions();
+      // Assert
+      assertThatResult(result).meetsConditions();
 
-    // export results
-    exportMetricsToBigQuery(info, getMetrics(info, INPUT_PCOLLECTION, OUTPUT_PCOLLECTION));
+      // export results
+      exportMetricsToBigQuery(info, getMetrics(info, INPUT_PCOLLECTION, OUTPUT_PCOLLECTION));
+    }
   }
 
   public void testSteadyState1hr(Function<LaunchConfig.Builder, LaunchConfig.Builder> paramsAdder)
