@@ -15,6 +15,7 @@
  */
 package com.google.cloud.teleport.templates;
 
+import static com.google.cloud.teleport.it.common.TestProperties.getProperty;
 import static com.google.cloud.teleport.it.common.matchers.TemplateAsserts.assertThatPipeline;
 import static com.google.cloud.teleport.it.common.matchers.TemplateAsserts.assertThatResult;
 
@@ -24,6 +25,7 @@ import com.google.cloud.teleport.it.common.PipelineOperator.Result;
 import com.google.cloud.teleport.it.common.TestProperties;
 import com.google.cloud.teleport.it.common.utils.ResourceManagerUtils;
 import com.google.cloud.teleport.it.gcp.TemplateLoadTestBase;
+import com.google.cloud.teleport.it.gcp.datagenerator.BacklogGenerator;
 import com.google.cloud.teleport.it.gcp.datagenerator.DataGenerator;
 import com.google.cloud.teleport.it.gcp.pubsub.PubsubResourceManager;
 import com.google.cloud.teleport.metadata.TemplateLoadTest;
@@ -33,6 +35,7 @@ import com.google.pubsub.v1.TopicName;
 import java.io.IOException;
 import java.text.ParseException;
 import java.time.Duration;
+import java.util.Collections;
 import java.util.function.Function;
 import org.junit.After;
 import org.junit.Before;
@@ -49,13 +52,14 @@ import org.slf4j.LoggerFactory;
 @TemplateLoadTest(PubsubToPubsub.class)
 @RunWith(JUnit4.class)
 public class PubsubToPubsubLT extends TemplateLoadTestBase {
+  // 25 gb needed 7 max workers
+  // 50 gb needed 7 max workers
+  // 100 gb needed 34 max workers
 
   private static final Logger LOG = LoggerFactory.getLogger(PubsubToPubsubLT.class);
   private static final String SPEC_PATH =
       MoreObjects.firstNonNull(
           TestProperties.specPath(), "gs://dataflow-templates/latest/Cloud_PubSub_to_Cloud_PubSub");
-  // 35,000,000 messages of the given schema make up approximately 10GB
-  private static final long NUM_MESSAGES = 35000000L;
   private static final String INPUT_PCOLLECTION = "Read PubSub Events/PubsubUnboundedSource.out0";
   private static final String OUTPUT_PCOLLECTION = "Write PubSub Events/MapElements/Map.out0";
   private static PubsubResourceManager pubsubResourceManager;
@@ -75,29 +79,31 @@ public class PubsubToPubsubLT extends TemplateLoadTestBase {
 
   @Test
   public void testBacklog10gb() throws IOException, ParseException, InterruptedException {
-    testBacklog10gb(Function.identity());
-  }
-
-  @Ignore("Ignore Streaming Engine tests by default.")
-  @Test
-  public void testBacklog10gbUsingStreamingEngine()
-      throws IOException, ParseException, InterruptedException {
-    testBacklog10gb(config -> config.addEnvironment("enableStreamingEngine", true));
+    testBacklog(BacklogConfiguration.of(10_000_000L, 30, 60), this::disableRunnerV2);
   }
 
   @Test
   public void testSteadyState1hr() throws IOException, ParseException, InterruptedException {
-    testSteadyState1hr(Function.identity());
+    // calculated num workers using throughput (elements/sec) per worker
+    testSteadyState1hr(
+        config ->
+            config
+                .addEnvironment("numWorkers", 12)
+                .addEnvironment("machineType", "n1-standard-2")
+                .addEnvironment(
+                    "additionalExperiments", Collections.singletonList("disable_runner_v2")));
   }
 
   @Ignore("Ignore Streaming Engine tests by default.")
   @Test
   public void testSteadyState1hrUsingStreamingEngine()
       throws IOException, ParseException, InterruptedException {
-    testSteadyState1hr(config -> config.addEnvironment("enableStreamingEngine", true));
+    testSteadyState1hr(this::enableStreamingEngine);
   }
 
-  public void testBacklog10gb(Function<LaunchConfig.Builder, LaunchConfig.Builder> paramsAdder)
+  public void testBacklog(
+      BacklogConfiguration configuration,
+      Function<LaunchConfig.Builder, LaunchConfig.Builder> paramsAdder)
       throws IOException, ParseException, InterruptedException {
     // Arrange
     TopicName backlogTopic = pubsubResourceManager.createTopic("backlog-input");
@@ -107,20 +113,24 @@ public class PubsubToPubsubLT extends TemplateLoadTestBase {
     SubscriptionName outputSubscription =
         pubsubResourceManager.createSubscription(outputTopic, "output-subscription");
     // Generate fake data to topic
-    DataGenerator dataGenerator =
-        DataGenerator.builderWithSchemaTemplate(testName, "GAME_EVENT")
-            .setQPS("1000000")
-            .setMessagesLimit(String.valueOf(NUM_MESSAGES))
+    BacklogGenerator dataGenerator =
+        BacklogGenerator.builder(testName)
+            .setSinkType("PUBSUB")
+            .setRowSize(configuration.getRowSize())
+            .setNumRows(configuration.getNumRows())
             .setTopic(backlogTopic.toString())
-            .setNumWorkers("50")
-            .setMaxNumWorkers("100")
             .build();
-    dataGenerator.execute(Duration.ofMinutes(30));
+
+    dataGenerator.execute(Duration.ofMinutes(configuration.getGeneratorTimeout()));
+
     LaunchConfig options =
         paramsAdder
             .apply(
                 LaunchConfig.builder(testName, SPEC_PATH)
-                    .addEnvironment("maxWorkers", 100)
+                    .addEnvironment("maxWorkers", 50)
+                    .addEnvironment(
+                        "additionalUserLabels",
+                        Collections.singletonMap("row-size", configuration.getRowSize() + "bytes"))
                     .addParameter("inputSubscription", backlogSubscription.toString())
                     .addParameter("outputTopic", outputTopic.toString()))
             .build();
@@ -130,7 +140,7 @@ public class PubsubToPubsubLT extends TemplateLoadTestBase {
     assertThatPipeline(info).isRunning();
     Result result =
         pipelineOperator.waitForConditionAndFinish(
-            createConfig(info, Duration.ofMinutes(60)),
+            createConfig(info, Duration.ofMinutes(configuration.getPipelineTimeout())),
             () -> {
               Long currentMessages =
                   monitoringClient.getNumMessagesInSubscription(
@@ -138,8 +148,8 @@ public class PubsubToPubsubLT extends TemplateLoadTestBase {
               LOG.info(
                   "Found {} messages in output subscription, expected {} messages.",
                   currentMessages,
-                  NUM_MESSAGES);
-              return currentMessages != null && currentMessages >= NUM_MESSAGES;
+                  configuration.getNumRows());
+              return currentMessages != null && currentMessages >= configuration.getNumRows();
             });
 
     // Assert
@@ -152,6 +162,7 @@ public class PubsubToPubsubLT extends TemplateLoadTestBase {
   public void testSteadyState1hr(Function<LaunchConfig.Builder, LaunchConfig.Builder> paramsAdder)
       throws IOException, ParseException, InterruptedException {
     // Arrange
+    String qps = getProperty("qps", "100000", TestProperties.Type.PROPERTY);
     TopicName inputTopic = pubsubResourceManager.createTopic("steady-state-input");
     SubscriptionName backlogSubscription =
         pubsubResourceManager.createSubscription(inputTopic, "steady-state-subscription");
@@ -160,7 +171,7 @@ public class PubsubToPubsubLT extends TemplateLoadTestBase {
         pubsubResourceManager.createSubscription(inputTopic, "output-subscription");
     DataGenerator dataGenerator =
         DataGenerator.builderWithSchemaTemplate(testName, "GAME_EVENT")
-            .setQPS("100000")
+            .setQPS(qps)
             .setTopic(inputTopic.toString())
             .setNumWorkers("10")
             .setMaxNumWorkers("100")
@@ -169,7 +180,8 @@ public class PubsubToPubsubLT extends TemplateLoadTestBase {
         paramsAdder
             .apply(
                 LaunchConfig.builder(testName, SPEC_PATH)
-                    .addEnvironment("maxWorkers", 100)
+                    .addEnvironment("maxWorkers", 50)
+                    .addEnvironment("additionalUserLabels", Collections.singletonMap("qps", qps))
                     .addParameter("inputSubscription", backlogSubscription.toString())
                     .addParameter("outputTopic", outputTopic.toString()))
             .build();
@@ -178,10 +190,10 @@ public class PubsubToPubsubLT extends TemplateLoadTestBase {
     LaunchInfo info = pipelineLauncher.launch(project, region, options);
     assertThatPipeline(info).isRunning();
     // ElementCount metric in dataflow is approximate, allow for 1% difference
-    Integer expectedMessages = (int) (dataGenerator.execute(Duration.ofMinutes(60)) * 0.99);
+    Long expectedMessages = (long) (dataGenerator.execute(Duration.ofMinutes(60)) * 0.99);
     Result result =
         pipelineOperator.waitForConditionAndFinish(
-            createConfig(info, Duration.ofMinutes(60)),
+            createConfig(info, Duration.ofMinutes(20)),
             () -> {
               Long currentMessages =
                   monitoringClient.getNumMessagesInSubscription(

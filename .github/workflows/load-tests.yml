@@ -1,0 +1,41 @@
+name: Load Tests
+
+on:
+  schedule:
+  # at 00:00 every Monday.
+  - cron: '0 0 * * 1'
+  workflow_dispatch:
+    inputs:
+      testPattern:
+        description: 'Tests to run'
+        type: string
+        required: false
+        # run all load tests by default
+        default: '*LT'
+
+permissions: read-all
+
+jobs:
+  load_tests:
+    name: Dataflow Templates Load tests
+    timeout-minutes: 2880 # 2 days
+    # Run on any runner that matches all the specified runs-on values.
+    runs-on: [ self-hosted, perf ]
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+      with:
+        fetch-depth: 0
+    - name: Setup Environment
+      id: setup-java-env
+      uses: ./.github/actions/setup-java-env
+    - name: Get Host IP
+      id: variables
+      run: echo "hostIP=$(gcloud compute instances list | grep $(hostname) | awk '{print $4}' )" >> $GITHUB_OUTPUT
+    - name: Run load tests with Maven
+      run: mvn test -Dtest=${TEST_PATTERN} -Dproject=apache-beam-testing -DartifactBucket=gs://apache-beam-testing-pranavbhandari -DhostIp=${HOST_IP} -DexportProject=cloud-teleport-testing -DexportDataset=performance_tests -DexportTable=template_performance_metrics -Djib.skip=true -DskipUnitTests -DfailIfNoTests=false -DtrimStackTrace=false -fae
+      env:
+        TEST_PATTERN: ${{ inputs.testPattern }}
+        HOST_IP: ${{ steps.variables.outputs.hostIP }}
+    - name: Cleanup Java Environment
+      uses: ./.github/actions/cleanup-java-env

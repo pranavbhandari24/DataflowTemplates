@@ -17,7 +17,6 @@ package com.google.cloud.teleport.v2.templates;
 
 import static com.google.cloud.teleport.it.common.matchers.TemplateAsserts.assertThatPipeline;
 import static com.google.cloud.teleport.it.common.matchers.TemplateAsserts.assertThatResult;
-import static com.google.cloud.teleport.it.gcp.artifacts.utils.ArtifactUtils.createStorageClient;
 import static com.google.cloud.teleport.it.gcp.artifacts.utils.ArtifactUtils.getFullGcsPath;
 import static com.google.cloud.teleport.it.gcp.bigquery.BigQueryResourceManagerUtils.toTableSpec;
 import static com.google.common.truth.Truth.assertThat;
@@ -26,25 +25,24 @@ import com.google.cloud.bigquery.Field;
 import com.google.cloud.bigquery.Schema;
 import com.google.cloud.bigquery.StandardSQLTypeName;
 import com.google.cloud.bigquery.TableId;
-import com.google.cloud.storage.Storage;
 import com.google.cloud.teleport.it.common.PipelineLauncher.LaunchConfig;
 import com.google.cloud.teleport.it.common.PipelineLauncher.LaunchInfo;
 import com.google.cloud.teleport.it.common.PipelineOperator.Result;
 import com.google.cloud.teleport.it.common.TestProperties;
 import com.google.cloud.teleport.it.common.utils.ResourceManagerUtils;
 import com.google.cloud.teleport.it.gcp.TemplateLoadTestBase;
-import com.google.cloud.teleport.it.gcp.artifacts.ArtifactClient;
-import com.google.cloud.teleport.it.gcp.artifacts.GcsArtifactClient;
 import com.google.cloud.teleport.it.gcp.bigquery.BigQueryResourceManager;
 import com.google.cloud.teleport.it.gcp.datagenerator.BacklogGenerator;
-import com.google.cloud.teleport.it.gcp.datagenerator.BacklogGenerator.GcsWriteFormat;
+import com.google.cloud.teleport.it.jdbc.JDBCResourceManager;
+import com.google.cloud.teleport.it.jdbc.JDBCResourceManager.JDBCSchema;
+import com.google.cloud.teleport.it.jdbc.PostgresResourceManager;
 import com.google.cloud.teleport.metadata.TemplateLoadTest;
 import com.google.common.base.MoreObjects;
-import com.google.common.io.Resources;
 import java.io.IOException;
 import java.text.ParseException;
 import java.time.Duration;
 import java.util.Collections;
+import java.util.Map;
 import java.util.function.Function;
 import org.junit.After;
 import org.junit.Before;
@@ -54,26 +52,20 @@ import org.junit.experimental.categories.Category;
 import org.junit.runner.RunWith;
 import org.junit.runners.JUnit4;
 
-/** Performance test for {@link TextIOToBigQuery TextIOToBigQuery} template. */
+/** Performance tests for {@link JdbcToBigQuery Jdbc To BigQuery} Flex template. */
 @Category(TemplateLoadTest.class)
-@TemplateLoadTest(TextIOToBigQuery.class)
+@TemplateLoadTest(JdbcToBigQuery.class)
 @RunWith(JUnit4.class)
-public class TextIOtoBigQueryLT extends TemplateLoadTestBase {
-  // 25gb max workers needed 9
-  // 50gb max workers needed 16
-  // 100gb max workers needed 31
-  // 1000gb max workers needed 355
+public class JdbcToBigQueryLT extends TemplateLoadTestBase {
+  private static final String ARTIFACT_BUCKET = TestProperties.artifactBucket();
+  private static final String TEST_ROOT_DIR = JdbcToBigQueryLT.class.getSimpleName().toLowerCase();
   private static final String SPEC_PATH =
       MoreObjects.firstNonNull(
-          TestProperties.specPath(),
-          "gs://dataflow-templates/latest/flex/GCS_Text_to_BigQuery_Flex");
-  // 35,000,000 messages of the given schema make up approximately 10GB
-  private static final Long NUM_MESSAGES = 35_000_000L;
-  // schema should match schema supplied to generate fake records.
-  private static final Schema SCHEMA =
+          TestProperties.specPath(), "gs://dataflow-templates/latest/flex/Jdbc_to_BigQuery_Flex");
+  private static final Schema BQ_SCHEMA =
       Schema.of(
           Field.of("eventId", StandardSQLTypeName.STRING),
-          Field.of("eventTimestamp", StandardSQLTypeName.INT64),
+          Field.of("eventTimestamp", StandardSQLTypeName.STRING),
           Field.of("ipv4", StandardSQLTypeName.STRING),
           Field.of("ipv6", StandardSQLTypeName.STRING),
           Field.of("country", StandardSQLTypeName.STRING),
@@ -81,32 +73,50 @@ public class TextIOtoBigQueryLT extends TemplateLoadTestBase {
           Field.of("quest", StandardSQLTypeName.STRING),
           Field.of("score", StandardSQLTypeName.INT64),
           Field.of("completed", StandardSQLTypeName.BOOL));
-  private static final String INPUT_PCOLLECTION = "Read from source/Read.out0";
+  private static final JDBCSchema JDBC_SCHEMA =
+      new JDBCSchema(
+          Map.of(
+              "eventId", "VARCHAR(100)",
+              "eventTimestamp", "TIMESTAMP",
+              "ipv4", "VARCHAR(100)",
+              "ipv6", "VARCHAR(100)",
+              "country", "VARCHAR(100)",
+              "username", "VARCHAR(100)",
+              "quest", "VARCHAR(100)",
+              "score", "INTEGER",
+              "completed", "BOOLEAN"),
+          "eventId");
+  private static final String STATEMENT =
+      "INSERT INTO %s (eventId,eventTimestamp,ipv4,ipv6,country,username,quest,score,completed) VALUES (?,to_timestamp(?/1000),?,?,?,?,?,?,?)";
+  private static final String QUERY = "select * from %s";
+  private static final String DRIVER_CLASS_NAME = "org.postgresql.Driver";
+  private static final String INPUT_PCOLLECTION = "Read from JdbcIO/ParDo(DynamicRead).out0";
   private static final String OUTPUT_PCOLLECTION =
-      "Insert into Bigquery/PrepareWrite/ParDo(Anonymous).out0";
-  private static final String ARTIFACT_BUCKET = TestProperties.artifactBucket();
-  private static final String TEST_ROOT_DIR =
-      TextIOtoBigQueryLT.class.getSimpleName().toLowerCase();
-  private static ArtifactClient artifactClient;
+      "Write to BigQuery/PrepareWrite/ParDo(Anonymous).out0";
+  private static JDBCResourceManager jdbcResourceManager;
   private static BigQueryResourceManager bigQueryResourceManager;
 
   @Before
-  public void setup() throws IOException {
-    // Set up resource managers
-    Storage gcsClient = createStorageClient(CREDENTIALS);
-    artifactClient = GcsArtifactClient.builder(gcsClient, ARTIFACT_BUCKET, TEST_ROOT_DIR).build();
+  public void setup() {
+    jdbcResourceManager = PostgresResourceManager.builder(testName).build();
     bigQueryResourceManager =
         BigQueryResourceManager.builder(testName, project).setCredentials(CREDENTIALS).build();
   }
 
   @After
   public void teardown() {
-    ResourceManagerUtils.cleanResources(artifactClient, bigQueryResourceManager);
+    ResourceManagerUtils.cleanResources(jdbcResourceManager, bigQueryResourceManager);
   }
 
   @Test
   public void testBacklog10gb() throws IOException, ParseException, InterruptedException {
-    testBacklog(BacklogConfiguration.of(10_000_000L, 30, 30), this::disableRunnerV2);
+    testBacklog(BacklogConfiguration.of(10_000_000L, 30, 40), this::disableRunnerV2);
+  }
+
+  @Test
+  public void testBacklog10gbUsingRunnerV2()
+      throws IOException, ParseException, InterruptedException {
+    testBacklog(BacklogConfiguration.of(10_000_000L, 30, 40), this::enableRunnerV2);
   }
 
   @Ignore(
@@ -115,55 +125,43 @@ public class TextIOtoBigQueryLT extends TemplateLoadTestBase {
   public void testBacklog10gbUsingStorageApi()
       throws IOException, ParseException, InterruptedException {
     testBacklog(
-        BacklogConfiguration.of(10_000_000L, 30, 30),
+        BacklogConfiguration.of(10_000_000L, 30, 40),
         config ->
             config
                 .addParameter("useStorageWriteApi", "true")
                 .addParameter("experiments", "disable_runner_v2"));
   }
 
+  @Ignore
   @Test
-  public void testBacklog10gbUsingRunnerV2()
-      throws IOException, ParseException, InterruptedException {
-    testBacklog(BacklogConfiguration.of(10_000_000L, 30, 30), this::enableRunnerV2);
+  public void testBacklog100gb() throws IOException, ParseException, InterruptedException {
+    // 350,000,000 messages of the given schema make up approximately 100GB
+    testBacklog(BacklogConfiguration.of(100_000_000L, 60, 120), this::disableRunnerV2);
   }
 
   public void testBacklog(
       BacklogConfiguration configuration,
       Function<LaunchConfig.Builder, LaunchConfig.Builder> paramsAdder)
       throws IOException, ParseException, InterruptedException {
-    // upload schema files and save path
-    String jsonPath =
-        getFullGcsPath(
-            ARTIFACT_BUCKET,
-            artifactClient
-                .uploadArtifact(
-                    "input/schema.json",
-                    Resources.getResource("TextIOToBigQueryLT/schema.json").getPath())
-                .name());
-    String udfPath =
-        getFullGcsPath(
-            ARTIFACT_BUCKET,
-            artifactClient
-                .uploadArtifact(
-                    "input/udf.js", Resources.getResource("TextIOToBigQueryTest/udf.js").getPath())
-                .name());
+    jdbcResourceManager.createTable(testName, new JDBCSchema(Map.of("bytes", "bytea"), "bytes"));
     TableId table =
         bigQueryResourceManager.createTable(
             testName, Schema.of(Field.of("bytes", StandardSQLTypeName.STRING)));
-
-    // Generate fake data to bucket
+    // Generate fake data to table
     BacklogGenerator dataGenerator =
         BacklogGenerator.builder(testName)
-            .setSinkType("GCS")
-            .setGcsWriteFormat(GcsWriteFormat.JSON)
+            .setSinkType("JDBC")
             .setRowSize(configuration.getRowSize())
             .setNumRows(configuration.getNumRows())
-            .setOutputDirectory(getTestMethodDirPath())
-            .setNumShards("0")
+            .setDriverClassName(DRIVER_CLASS_NAME)
+            .setConnectionUrl(jdbcResourceManager.getUri())
+            .setStatement(
+                String.format(
+                    "INSERT INTO %s values (?)", testName)) // String.format(STATEMENT, testName))
+            .setUsername(jdbcResourceManager.getUsername())
+            .setPassword(jdbcResourceManager.getPassword())
             .build();
     dataGenerator.execute(Duration.ofMinutes(configuration.getGeneratorTimeout()));
-
     LaunchConfig options =
         paramsAdder
             .apply(
@@ -171,13 +169,18 @@ public class TextIOtoBigQueryLT extends TemplateLoadTestBase {
                     .addEnvironment(
                         "additionalUserLabels",
                         Collections.singletonMap("row-size", configuration.getRowSize() + "bytes"))
-                    .addParameter("JSONPath", jsonPath)
-                    .addParameter("inputFilePattern", getTestMethodDirPath() + "/*")
-                    .addParameter("outputTable", toTableSpec(project, table))
-                    .addParameter("javascriptTextTransformGcsPath", udfPath)
-                    .addParameter("javascriptTextTransformFunctionName", "identity")
+                    // Use a worker with high memory as this template uses DynamicJdbcIO,
+                    // which does not parallelize reads
+                    .addParameter("workerMachineType", "n1-highmem-8")
                     .addParameter(
-                        "bigQueryLoadingTemporaryDirectory", getTestMethodDirPath() + "/temp"))
+                        "driverJars", "gs://apache-beam-pranavbhandari/postgresql-42.2.27.jar")
+                    .addParameter("driverClassName", DRIVER_CLASS_NAME)
+                    .addParameter("username", jdbcResourceManager.getUsername())
+                    .addParameter("password", jdbcResourceManager.getPassword())
+                    .addParameter("connectionURL", jdbcResourceManager.getUri())
+                    .addParameter("query", String.format(QUERY, testName))
+                    .addParameter("outputTable", toTableSpec(project, table))
+                    .addParameter("bigQueryLoadingTemporaryDirectory", getTempDirectory()))
             .build();
 
     // Act
@@ -196,7 +199,7 @@ public class TextIOtoBigQueryLT extends TemplateLoadTestBase {
     exportMetricsToBigQuery(info, getMetrics(info, INPUT_PCOLLECTION, OUTPUT_PCOLLECTION));
   }
 
-  private String getTestMethodDirPath() {
-    return getFullGcsPath(ARTIFACT_BUCKET, TEST_ROOT_DIR, artifactClient.runId(), testName);
+  private String getTempDirectory() {
+    return getFullGcsPath(ARTIFACT_BUCKET, TEST_ROOT_DIR, testName, "temp");
   }
 }

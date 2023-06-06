@@ -1,0 +1,8 @@
+{
+  "BigQuery Schema": [
+    {
+      "name": "bytes",
+      "type": "STRING"
+    }
+  ]
+}

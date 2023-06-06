@@ -28,7 +28,6 @@
   <modelVersion>4.0.0</modelVersion>
 
   <properties>
-    <commons-math3.version>3.6.1</commons-math3.version>
     <failsafe.version>3.3.0</failsafe.version>
     <testcontainers.version>1.17.5</testcontainers.version>
 
@@ -46,12 +45,6 @@
       <groupId>org.slf4j</groupId>
       <artifactId>slf4j-simple</artifactId>
       <version>${slf4j.version}</version>
-    </dependency>
-    <!-- transitive dependencies need to pin version -->
-    <dependency>
-      <groupId>org.apache.commons</groupId>
-      <artifactId>commons-math3</artifactId>
-      <version>${commons-math3.version}</version>
     </dependency>
     <dependency>
       <groupId>org.apache.hadoop</groupId>

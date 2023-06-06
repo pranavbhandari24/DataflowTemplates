@@ -15,6 +15,7 @@
  */
 package com.google.cloud.teleport.v2.templates.pubsubtotext;
 
+import static com.google.cloud.teleport.it.common.TestProperties.getProperty;
 import static com.google.cloud.teleport.it.common.matchers.TemplateAsserts.assertThatPipeline;
 import static com.google.cloud.teleport.it.common.matchers.TemplateAsserts.assertThatResult;
 import static com.google.cloud.teleport.it.gcp.artifacts.utils.ArtifactUtils.createStorageClient;
@@ -30,6 +31,7 @@ import com.google.cloud.teleport.it.common.utils.ResourceManagerUtils;
 import com.google.cloud.teleport.it.gcp.TemplateLoadTestBase;
 import com.google.cloud.teleport.it.gcp.artifacts.ArtifactClient;
 import com.google.cloud.teleport.it.gcp.artifacts.GcsArtifactClient;
+import com.google.cloud.teleport.it.gcp.datagenerator.BacklogGenerator;
 import com.google.cloud.teleport.it.gcp.datagenerator.DataGenerator;
 import com.google.cloud.teleport.it.gcp.pubsub.PubsubResourceManager;
 import com.google.cloud.teleport.metadata.TemplateLoadTest;
@@ -39,11 +41,11 @@ import com.google.pubsub.v1.TopicName;
 import java.io.IOException;
 import java.text.ParseException;
 import java.time.Duration;
+import java.util.Collections;
 import java.util.function.Function;
 import java.util.regex.Pattern;
 import org.junit.After;
 import org.junit.Before;
-import org.junit.Ignore;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
 import org.junit.runner.RunWith;
@@ -66,14 +68,13 @@ public final class PubsubToTextLT extends TemplateLoadTestBase {
   private static final String OUTPUT_DIRECTORY_KEY = "outputDirectory";
   private static final String WINDOW_DURATION_KEY = "windowDuration";
   private static final String NUM_WORKERS_KEY = "numWorkers";
+  private static final String MAX_WORKERS_KEY = "maxNumWorkers";
   private static final String OUTPUT_FILENAME_PREFIX = "outputFilenamePrefix";
   private static final String DEFAULT_WINDOW_DURATION = "10s";
   private static final Pattern EXPECTED_PATTERN = Pattern.compile(".*subscription-output-.*");
   private static final String INPUT_PCOLLECTION = "Read PubSub Events/PubsubUnboundedSource.out0";
   private static final String OUTPUT_PCOLLECTION =
       "Write File(s)/WriteFiles/WriteShardedBundlesToTempFiles/ApplyShardingKey.out0";
-  // 35,000,000 messages of the given schema make up approximately 10GB
-  private static final long NUM_MESSAGES = 35000000L;
 
   private static PubsubResourceManager pubsubResourceManager;
   private static ArtifactClient gcsClient;
@@ -95,112 +96,110 @@ public final class PubsubToTextLT extends TemplateLoadTestBase {
   }
 
   @Test
-  public void testBacklog10gb() throws IOException, InterruptedException, ParseException {
-    testBacklog10gb(Function.identity());
+  public void testBacklog10gb_1Worker() throws IOException, InterruptedException, ParseException {
+    testBacklog(
+        BacklogConfiguration.of(10_000_000L, 30, 30),
+        config ->
+            config
+                .addEnvironment("numWorkers", 1)
+                .addEnvironment("maxWorkers", 1)
+                .addEnvironment(
+                    "additionalExperiments", Collections.singletonList("disable_runner_v2")));
   }
 
-  @Ignore("Ignore Streaming Engine tests by default.")
-  @Test
-  public void testBacklog10gbUsingStreamingEngine()
-      throws IOException, InterruptedException, ParseException {
-    testBacklog10gb(config -> config.addEnvironment("enableStreamingEngine", true));
-  }
-
-  @Ignore("Test fails, sickbay")
   @Test
   public void testBacklog10gbUsingRunnerV2()
       throws IOException, ParseException, InterruptedException {
-    testBacklog10gb(config -> config.addParameter("experiments", "use_runner_v2"));
-  }
-
-  @Ignore("Test fails, sickbay")
-  @Test
-  public void testBacklog10gbUsingPrime() throws IOException, ParseException, InterruptedException {
-    testBacklog10gb(config -> config.addParameter("experiments", "enable_prime"));
+    testBacklog(BacklogConfiguration.of(10_000_000L, 30, 50), this::enableRunnerV2);
   }
 
   @Test
   public void testSteadyState1hr() throws IOException, InterruptedException, ParseException {
-    testSteadyState1hr(Function.identity());
+    // calculated num workers using throughput (elements/sec) per worker
+    testSteadyState1hr(
+        config ->
+            config
+                .addEnvironment("numWorkers", 21)
+                .addEnvironment("machineType", "n1-standard-2")
+                .addEnvironment(
+                    "additionalExperiments", Collections.singletonList("disable_runner_v2")));
   }
 
-  @Ignore("Ignore Streaming Engine tests by default.")
   @Test
   public void testSteadyState1hrUsingStreamingEngine()
       throws IOException, InterruptedException, ParseException {
-    testSteadyState1hr(config -> config.addEnvironment("enableStreamingEngine", true));
+    testSteadyState1hr(this::enableStreamingEngine);
   }
 
-  @Ignore("Test fails, sickbay")
   @Test
   public void testSteadyState1hrUsingRunnerV2()
       throws IOException, ParseException, InterruptedException {
-    testSteadyState1hr(config -> config.addParameter("experiments", "use_runner_v2"));
+    testSteadyState1hr(this::enableRunnerV2);
   }
 
-  @Ignore("Test fails, sickbay")
-  @Test
-  public void testSteadyState1hrUsingPrime()
-      throws IOException, ParseException, InterruptedException {
-    testSteadyState1hr(config -> config.addParameter("experiments", "enable_prime"));
-  }
-
-  public void testBacklog10gb(Function<LaunchConfig.Builder, LaunchConfig.Builder> paramsAdder)
+  public void testBacklog(
+      BacklogConfiguration configuration,
+      Function<LaunchConfig.Builder, LaunchConfig.Builder> paramsAdder)
       throws IOException, InterruptedException, ParseException {
-    // Arrange
-    String name = testName;
     // Create topic and subscription
     TopicName backlogTopic = pubsubResourceManager.createTopic("backlog-input");
     SubscriptionName backlogSubscription =
         pubsubResourceManager.createSubscription(backlogTopic, "backlog-subscription");
     // Generate fake data to topic
-    DataGenerator dataGenerator =
-        DataGenerator.builderWithSchemaTemplate(testName, "GAME_EVENT")
-            .setQPS("1000000")
-            .setMessagesLimit(String.valueOf(NUM_MESSAGES))
+    BacklogGenerator dataGenerator =
+        BacklogGenerator.builder(testName)
+            .setSinkType("PUBSUB")
+            .setRowSize(configuration.getRowSize())
+            .setNumRows(configuration.getNumRows())
             .setTopic(backlogTopic.toString())
-            .setNumWorkers("50")
-            .setMaxNumWorkers("100")
             .build();
-    dataGenerator.execute(Duration.ofMinutes(30));
-    LaunchConfig options =
-        paramsAdder
-            .apply(
-                LaunchConfig.builder(testName, SPEC_PATH)
-                    .addParameter(INPUT_SUBSCRIPTION, backlogSubscription.toString())
-                    .addParameter(WINDOW_DURATION_KEY, DEFAULT_WINDOW_DURATION)
-                    .addParameter(OUTPUT_DIRECTORY_KEY, getTestMethodDirPath())
-                    .addParameter(NUM_SHARDS_KEY, "20")
-                    .addParameter(OUTPUT_FILENAME_PREFIX, "subscription-output-")
-                    .addParameter(NUM_WORKERS_KEY, "20"))
-            .build();
+    dataGenerator.execute(Duration.ofMinutes(configuration.getGeneratorTimeout()));
 
-    // Act
-    LaunchInfo info = pipelineLauncher.launch(project, region, options);
-    assertThatPipeline(info).isRunning();
-    Result result =
-        pipelineOperator.waitForConditionAndFinish(
-            createConfig(info, Duration.ofMinutes(30)),
-            () -> waitForNumMessages(info.jobId(), INPUT_PCOLLECTION, NUM_MESSAGES));
+    for (String machineType : MACHINE_TYPES) {
+      LaunchConfig options =
+          paramsAdder
+              .apply(
+                  LaunchConfig.builder(testName, SPEC_PATH)
+                      .addEnvironment(
+                          "additionalUserLabels",
+                          Collections.singletonMap(
+                              "row-size", configuration.getRowSize() + "bytes"))
+                      .addEnvironment("maxWorkers", 50)
+                      .addParameter(INPUT_SUBSCRIPTION, backlogSubscription.toString())
+                      .addParameter(OUTPUT_DIRECTORY_KEY, getTestMethodDirPath())
+                      .addParameter(OUTPUT_FILENAME_PREFIX, "subscription-output-")
+                      .addParameter("autoscalingAlgorithm", "THROUGHPUT_BASED")
+                      .addEnvironment("machineType", machineType))
+              .build();
 
-    // Assert
-    assertThatResult(result).meetsConditions();
-    assertThat(gcsClient.listArtifacts(name, EXPECTED_PATTERN)).isNotEmpty();
+      // Act
+      LaunchInfo info = pipelineLauncher.launch(project, region, options);
+      assertThatPipeline(info).isRunning();
+      Result result =
+          pipelineOperator.waitForConditionAndFinish(
+              createConfig(info, Duration.ofMinutes(configuration.getPipelineTimeout())),
+              () ->
+                  waitForNumMessages(info.jobId(), INPUT_PCOLLECTION, configuration.getNumRows()));
 
-    // export results
-    exportMetricsToBigQuery(info, getMetrics(info, INPUT_PCOLLECTION, OUTPUT_PCOLLECTION));
+      // Assert
+      assertThatResult(result).meetsConditions();
+      assertThat(gcsClient.listArtifacts(testName, EXPECTED_PATTERN)).isNotEmpty();
+
+      // export results
+      exportMetricsToBigQuery(info, getMetrics(info, INPUT_PCOLLECTION, OUTPUT_PCOLLECTION));
+    }
   }
 
   public void testSteadyState1hr(Function<LaunchConfig.Builder, LaunchConfig.Builder> paramsAdder)
       throws IOException, InterruptedException, ParseException {
     // Arrange
-    String name = testName;
+    String qps = getProperty("qps", "100000", TestProperties.Type.PROPERTY);
     TopicName topic = pubsubResourceManager.createTopic(testName + "input");
     SubscriptionName subscription =
         pubsubResourceManager.createSubscription(topic, "input-subscription");
     DataGenerator dataGenerator =
         DataGenerator.builderWithSchemaTemplate(testName, "GAME_EVENT")
-            .setQPS("100000")
+            .setQPS(qps)
             .setTopic(topic.toString())
             .setNumWorkers("10")
             .setMaxNumWorkers("100")
@@ -209,12 +208,13 @@ public final class PubsubToTextLT extends TemplateLoadTestBase {
         paramsAdder
             .apply(
                 LaunchConfig.builder(testName, SPEC_PATH)
+                    .addEnvironment("additionalUserLabels", Collections.singletonMap("qps", qps))
+                    .addEnvironment("maxWorkers", 50)
                     .addParameter(INPUT_SUBSCRIPTION, subscription.toString())
                     .addParameter(WINDOW_DURATION_KEY, DEFAULT_WINDOW_DURATION)
                     .addParameter(OUTPUT_DIRECTORY_KEY, getTestMethodDirPath())
-                    .addParameter(NUM_SHARDS_KEY, "20")
                     .addParameter(OUTPUT_FILENAME_PREFIX, "subscription-output-")
-                    .addParameter(NUM_WORKERS_KEY, "10"))
+                    .addParameter("autoscalingAlgorithm", "THROUGHPUT_BASED"))
             .build();
 
     // Act
@@ -228,7 +228,7 @@ public final class PubsubToTextLT extends TemplateLoadTestBase {
             () -> waitForNumMessages(info.jobId(), INPUT_PCOLLECTION, expectedMessages));
     // Assert
     assertThatResult(result).meetsConditions();
-    assertThat(gcsClient.listArtifacts(name, EXPECTED_PATTERN)).isNotEmpty();
+    assertThat(gcsClient.listArtifacts(testName, EXPECTED_PATTERN)).isNotEmpty();
 
     // export results
     exportMetricsToBigQuery(info, getMetrics(info, INPUT_PCOLLECTION, OUTPUT_PCOLLECTION));

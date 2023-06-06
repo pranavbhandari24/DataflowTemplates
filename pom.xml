@@ -55,6 +55,7 @@
     <commons-codec.version>1.15</commons-codec.version>
     <commons-io.version>2.11.0</commons-io.version>
     <commons-lang3.version>3.12.0</commons-lang3.version>
+    <commons-math3.version>3.6.1</commons-math3.version>
     <conscrypt.version>2.5.2</conscrypt.version>
     <hadoop.version>3.3.5</hadoop.version>
     <hamcrest.version>2.1</hamcrest.version>
@@ -88,6 +89,13 @@
 
     <licenseHeaderFile>JAVA_LICENSE_HEADER</licenseHeaderFile>
   </properties>
+
+  <repositories>
+    <repository>
+      <id>apache.candidate</id>
+      <url>https://repository.apache.org/content/repositories/orgapachebeam-1309/</url>
+    </repository>
+  </repositories>
 
   <dependencyManagement>
     <dependencies>
@@ -148,6 +156,12 @@
         <groupId>org.yaml</groupId>
         <artifactId>snakeyaml</artifactId>
         <version>${snakeyaml.version}</version>
+      </dependency>
+      <!-- Enforce updated version of math3 -->
+      <dependency>
+        <groupId>org.apache.commons</groupId>
+        <artifactId>commons-math3</artifactId>
+        <version>${commons-math3.version}</version>
       </dependency>
     </dependencies>
   </dependencyManagement>

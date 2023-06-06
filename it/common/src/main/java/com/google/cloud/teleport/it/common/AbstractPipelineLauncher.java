@@ -281,6 +281,7 @@ public abstract class AbstractPipelineLauncher implements PipelineLauncher {
 
   @Override
   public void cleanupAll() throws IOException {
+    LOG.info("Cleaning up dataflow jobs...");
     for (String jobId : launchedJobs) {
       try {
         JobState state = getJobStatus(TestProperties.project(), TestProperties.region(), jobId);
@@ -291,5 +292,6 @@ public abstract class AbstractPipelineLauncher implements PipelineLauncher {
         LOG.warn("Unable to cancel {}. Encountered error.", jobId, e);
       }
     }
+    LOG.info("Dataflow jobs successfully cleaned up.");
   }
 }
