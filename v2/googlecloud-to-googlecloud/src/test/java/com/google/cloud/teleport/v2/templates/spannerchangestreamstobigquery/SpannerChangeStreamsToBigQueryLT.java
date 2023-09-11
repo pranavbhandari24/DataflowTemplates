@@ -57,7 +57,7 @@ public class SpannerChangeStreamsToBigQueryLT extends TemplateLoadTestBase {
           TestProperties.specPath(),
           "gs://dataflow-templates/latest/flex/Spanner_Change_Streams_to_BigQuery");
 
-  private static final String INPUT_PCOLLECTION = null;
+  private static final String INPUT_PCOLLECTION = "SpannerIO.ReadChangeStream/Gather metrics/ParMultiDo(PostProcessingMetrics).out0";
   private static final String OUTPUT_PCOLLECTION = null;
   private static SpannerResourceManager spannerResourceManager;
   private static BigQueryResourceManager bigQueryResourceManager;
@@ -88,13 +88,13 @@ public class SpannerChangeStreamsToBigQueryLT extends TemplateLoadTestBase {
     String createTableStatement =
         String.format(
             "CREATE TABLE `%s` (\n"
-                + "  eventId STRING(1024) NOT NULL,\n"
+                + "  eventId STRING(36) NOT NULL,\n"
                 + "  eventTimestamp INT64,\n"
-                + "  ipv4 STRING(1024),\n"
-                + "  ipv6 STRING(1024),\n"
-                + "  country STRING(1024),\n"
-                + "  username STRING(1024),\n"
-                + "  quest STRING(1024),\n"
+                + "  ipv4 STRING(15),\n"
+                + "  ipv6 STRING(39),\n"
+                + "  country STRING(30),\n"
+                + "  username STRING(30),\n"
+                + "  quest STRING(50),\n"
                 + "  score INT64,\n"
                 + "  completed BOOL,\n"
                 + ") PRIMARY KEY(eventId)",
@@ -116,10 +116,11 @@ public class SpannerChangeStreamsToBigQueryLT extends TemplateLoadTestBase {
             .setSpannerInstanceName(spannerResourceManager.getInstanceId())
             .setSpannerDatabaseName(spannerResourceManager.getDatabaseId())
             .setSpannerTableName(testName)
-            .setSpannerMaxNumRows("2000")
-            .setSpannerMaxNumMutations("10000")
-            .setSpannerBatchSizeBytes("2000000")
-            .setSpannerCommitDeadlineSeconds("20")
+            // .setSpannerMaxNumRows("2000")
+            // .setSpannerMaxNumMutations("10000")
+            // .setSpannerBatchSizeBytes("2000000")
+            // .setSpannerCommitDeadlineSeconds("20")
+            .setSpannerGroupingFactor("1000")
             .setNumWorkers("45")
             .setMaxNumWorkers("45")
             .build();

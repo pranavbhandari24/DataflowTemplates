@@ -5,6 +5,13 @@ on:
   # at 00:00 every Saturday.
   - cron: '0 0 * * 6'
   workflow_dispatch:
+    inputs:
+      testPattern:
+        description: 'Test pattern'
+        type: string
+        required: false
+        # run all load tests by default
+        default: '*LT'
 
 permissions: read-all
 
@@ -27,8 +34,9 @@ jobs:
       run: echo "hostIP=$(gcloud compute instances list | grep $(hostname) | awk '{print $4; exit}' )" >> $GITHUB_OUTPUT
     - name: Run load tests with Maven
       run: |
-          mvn test -PtemplatesLoadTests -Dproject=apache-beam-testing -DartifactBucket=gs://apache-beam-testing-pranavbhandari -DhostIp=${HOST_IP} -DexportProject=cloud-teleport-testing -DexportDataset=performance_tests -DexportTable=template_performance_metrics -fae
+          mvn test -Dtest=${TEST_PATTERN} -PtemplatesLoadTests -Dproject=apache-beam-testing -DartifactBucket=gs://apache-beam-testing-pranavbhandari -DhostIp=${HOST_IP} -DexportProject=cloud-teleport-testing -DexportDataset=performance_tests -DexportTable=template_performance_metrics -fae
       env:
         HOST_IP: ${{ steps.variables.outputs.hostIP }}
+        TEST_PATTERN: ${{ inputs.testPattern || '*LT' }} # need to specify default value here since parameters are not available when workflow is triggered on schedule.
     - name: Cleanup Java Environment
       uses: ./.github/actions/cleanup-java-env

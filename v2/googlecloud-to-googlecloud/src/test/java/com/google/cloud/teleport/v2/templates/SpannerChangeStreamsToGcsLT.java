@@ -34,9 +34,7 @@ import org.apache.beam.it.common.PipelineLauncher;
 import org.apache.beam.it.common.PipelineOperator;
 import org.apache.beam.it.common.TestProperties;
 import org.apache.beam.it.common.utils.ResourceManagerUtils;
-import org.apache.beam.it.gcp.LoadTestBase;
 import org.apache.beam.it.gcp.TemplateLoadTestBase;
-import org.apache.beam.it.gcp.dataflow.FlexTemplateClient;
 import org.apache.beam.it.gcp.datagenerator.DataGenerator;
 import org.apache.beam.it.gcp.spanner.SpannerResourceManager;
 import org.apache.beam.it.gcp.storage.GcsResourceManager;
@@ -91,26 +89,26 @@ public class SpannerChangeStreamsToGcsLT extends TemplateLoadTestBase {
       Function<PipelineLauncher.LaunchConfig.Builder, PipelineLauncher.LaunchConfig.Builder>
           paramsAdder)
       throws IOException, ParseException, InterruptedException {
+    // 50,000 QPS - GroupingFactor 500, deadline - 25
     // Arrange
-    // QPS is set to 25K currently since DataGenerator is not able to handle writes at higher QPS
     String qps = getProperty("qps", "100000", TestProperties.Type.PROPERTY);
     // create spanner table
     String createTableStatement =
         String.format(
             "CREATE TABLE `%s` (\n"
-                + "  eventId STRING(1024) NOT NULL,\n"
+                + "  eventId STRING(36) NOT NULL,\n"
                 + "  eventTimestamp INT64,\n"
-                + "  ipv4 STRING(1024),\n"
-                + "  ipv6 STRING(1024),\n"
-                + "  country STRING(1024),\n"
-                + "  username STRING(1024),\n"
-                + "  quest STRING(1024),\n"
+                + "  ipv4 STRING(15),\n"
+                + "  ipv6 STRING(39),\n"
+                + "  country STRING(30),\n"
+                + "  username STRING(30),\n"
+                + "  quest STRING(50),\n"
                 + "  score INT64,\n"
                 + "  completed BOOL,\n"
-                + ") PRIMARY KEY(eventId, eventTimestamp)",
+                + ") PRIMARY KEY(eventId)",
             testName);
     // creating spanner instance with 15 nodes.
-    spannerResourceManager.createInstance(15);
+    spannerResourceManager.createInstance(12);
     spannerResourceManager.executeDdlStatement(createTableStatement);
     // create spanner change stream
     String createChangeStreamStatement =
@@ -124,11 +122,11 @@ public class SpannerChangeStreamsToGcsLT extends TemplateLoadTestBase {
             .setSpannerInstanceName(spannerResourceManager.getInstanceId())
             .setSpannerDatabaseName(spannerResourceManager.getDatabaseId())
             .setSpannerTableName(testName)
-            // .setSpannerMaxNumRows("2000")
-            // .setSpannerMaxNumMutations("10000")
-            // .setSpannerBatchSizeBytes("2000000")
-            .setSpannerGroupingFactor("1000")
-            // .setSpannerCommitDeadlineSeconds("20")
+            .setSpannerMaxNumRows("1000")
+            .setSpannerMaxNumMutations("10000")
+            .setSpannerBatchSizeBytes("2000000")
+            .setSpannerGroupingFactor("500")
+            .setSpannerCommitDeadlineSeconds("25")
             .setNumWorkers("45")
             .setMaxNumWorkers("45")
             .build();

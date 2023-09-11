@@ -244,9 +244,9 @@ public class StreamingDataGeneratorLT extends TemplateLoadTestBase {
             // .addParameter("maxNumMutations", "10000")
             // .addParameter("batchSizeBytes", "2000000")
             .addParameter("groupingFactor", "1000")
-            .addParameter("numWorkers", "25")
+            .addParameter("numWorkers", "45")
             .addParameter("maxNumWorkers", "45")
-            // .addParameter("commitDeadlineSeconds", "25")
+            .addParameter("commitDeadlineSeconds", "25")
             .addParameter("autoscalingAlgorithm", "THROUGHPUT_BASED")
             .build();
 
