@@ -93,6 +93,9 @@ public abstract class StreamingDataGeneratorWriteToSpanner
       writeIO =
           writeIO.withCommitDeadline(Duration.standardSeconds(options.getCommitDeadlineSeconds()));
     }
+    if (options.getGroupingFactor() != null) {
+      writeIO = writeIO.withGroupingFactor(options.getGroupingFactor());
+    }
     generatedMessages
         .apply(
             "Convert to String",

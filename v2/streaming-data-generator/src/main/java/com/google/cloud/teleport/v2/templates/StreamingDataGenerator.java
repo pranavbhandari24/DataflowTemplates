@@ -391,10 +391,9 @@ public class StreamingDataGenerator {
 
     void setSpannerTableName(String spannerTableName);
 
-    @TemplateParameter.Text(
+    @TemplateParameter.Long(
         order = 26,
         optional = true,
-        regexes = {"^[1-9][0-9]*$"},
         description = "Max mutatated cells per batch.",
         helpText =
             "Specifies the cell mutation limit (maximum number of mutated cells per batch). Default value is 5000")
@@ -402,10 +401,9 @@ public class StreamingDataGenerator {
 
     void setMaxNumMutations(Long value);
 
-    @TemplateParameter.Text(
+    @TemplateParameter.Long(
         order = 27,
         optional = true,
-        regexes = {"^[1-9][0-9]*$"},
         description = "Max rows per batch.",
         helpText =
             "Specifies the row mutation limit (maximum number of mutated rows per batch). Default value is 1000")
@@ -413,10 +411,9 @@ public class StreamingDataGenerator {
 
     void setMaxNumRows(Long value);
 
-    @TemplateParameter.Text(
+    @TemplateParameter.Long(
         order = 28,
         optional = true,
-        regexes = {"^[1-9][0-9]*$"},
         description = "Max batch size in bytes.",
         helpText =
             "Specifies the batch size limit (max number of bytes mutated per batch). Default value is 1MB")
@@ -424,15 +421,23 @@ public class StreamingDataGenerator {
 
     void setBatchSizeBytes(Long value);
 
-    @TemplateParameter.Text(
+    @TemplateParameter.Long(
         order = 29,
         optional = true,
-        regexes = {"^[1-9][0-9]*$"},
         description = "Commit deadline in seconds for write requests.",
         helpText = "Specifies the deadline in seconds for the Commit API call.")
     Long getCommitDeadlineSeconds();
 
     void setCommitDeadlineSeconds(Long value);
+
+    @TemplateParameter.Integer(
+        order = 30,
+        optional = true,
+        description = "Grouping factor.",
+        helpText = "Specifies the grouping factor.")
+    Integer getGroupingFactor();
+
+    void setGroupingFactor(Integer value);
   }
 
   /** Allowed list of existing schema templates. */

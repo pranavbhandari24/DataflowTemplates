@@ -47,16 +47,12 @@ import org.junit.Test;
 import org.junit.experimental.categories.Category;
 import org.junit.runner.RunWith;
 import org.junit.runners.JUnit4;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /** Integration test for {@link MySQLToBigQuery} Flex template MySQL_to_BigQuery. */
 @Category(TemplateIntegrationTest.class)
 @TemplateIntegrationTest(MySQLToBigQuery.class)
 @RunWith(JUnit4.class)
 public class MySQLToBigQueryIT extends TemplateTestBase {
-
-  private static final Logger LOG = LoggerFactory.getLogger(MySQLToBigQueryIT.class);
 
   private static final String ROW_ID = "row_id";
   private static final String NAME = "name";

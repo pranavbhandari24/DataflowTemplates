@@ -75,6 +75,7 @@ public final class SpannerResourceManager implements ResourceManager {
   private static final Duration CREATE_BACKOFF_DELAY = Duration.ofSeconds(10);
   private static final Duration CREATE_BACKOFF_MAX_DELAY = Duration.ofSeconds(60);
   private static final double CREATE_BACKOFF_JITTER = 0.1;
+  private static final int DEFAULT_NUM_NODES = 1;
 
   private boolean hasInstance = false;
   private boolean hasDatabase = false;
@@ -157,14 +158,17 @@ public final class SpannerResourceManager implements ResourceManager {
     if (hasInstance) {
       return;
     }
+    createInstance(DEFAULT_NUM_NODES);
+  }
 
+  public synchronized String createInstance(int numNodes) {
     LOG.info("Creating instance {} in project {}.", instanceId, projectId);
     try {
       InstanceInfo instanceInfo =
           InstanceInfo.newBuilder(InstanceId.of(projectId, instanceId))
               .setInstanceConfigId(InstanceConfigId.of(projectId, "regional-" + region))
               .setDisplayName(instanceId)
-              .setNodeCount(1)
+              .setNodeCount(numNodes)
               .build();
 
       // Retry creation if there's a quota error
@@ -174,6 +178,7 @@ public final class SpannerResourceManager implements ResourceManager {
 
       hasInstance = true;
       LOG.info("Successfully created instance {}: {}.", instanceId, instance.getState());
+      return instance.getDisplayName();
     } catch (Exception e) {
       cleanupAll();
       throw new SpannerResourceManagerException("Failed to create instance.", e);
