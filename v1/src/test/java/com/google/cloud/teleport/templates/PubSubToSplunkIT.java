@@ -26,6 +26,7 @@ import com.google.cloud.teleport.metadata.DirectRunnerTest;
 import com.google.cloud.teleport.metadata.SkipDirectRunnerTest;
 import com.google.cloud.teleport.metadata.TemplateIntegrationTest;
 import com.google.common.collect.ImmutableMap;
+import com.google.gson.JsonObject;
 import com.google.protobuf.ByteString;
 import com.google.pubsub.v1.SubscriptionName;
 import com.google.pubsub.v1.TopicName;
@@ -125,18 +126,26 @@ public class PubSubToSplunkIT extends TemplateTestBase {
     for (int i = 1; i <= MESSAGES_COUNT; i++) {
       String event = RandomStringUtils.randomAlphabetic(1, 20);
       long usingEpochTime = currentTime + i;
+      JsonObject fields = new JsonObject();
+      fields.addProperty("custom_field", String.valueOf(i));
       SplunkEvent.Builder splunkEventBuilder =
           SplunkEvent.newBuilder()
               .withEvent(event)
               .withSource(source)
               .withSourceType(sourceType)
-              .withTime(usingEpochTime);
+              .withTime(usingEpochTime)
+              .withFields(fields);
       SplunkEvent splunkEventBeforeUdf = splunkEventBuilder.withHost(host.toLowerCase()).create();
       SplunkEvent splunkEventAfterUdf = splunkEventBuilder.withHost(host.toUpperCase()).create();
 
       Map<String, Object> splunkMap = splunkEventToMap(splunkEventBeforeUdf);
       splunkMap.put("time", Instant.ofEpochMilli(usingEpochTime));
-      String pubSubMessage = new JSONObject(Map.of("_metadata", splunkMap)).toString();
+      // convert the map to JSON string
+      JSONObject metadata = new JSONObject();
+      splunkMap.forEach(metadata::put);
+      JSONObject pubsubMessage = new JSONObject();
+      pubsubMessage.put("_metadata", metadata);
+      String pubSubMessage = pubsubMessage.toString();
       ByteString messageData = ByteString.copyFromUtf8(pubSubMessage);
       pubsubResourceManager.publish(pubSubTopic, ImmutableMap.of(), messageData);
 
@@ -153,7 +162,14 @@ public class PubSubToSplunkIT extends TemplateTestBase {
             .setMinMessages(allDlq ? MESSAGES_COUNT + BAD_MESSAGES_COUNT : BAD_MESSAGES_COUNT)
             .build();
 
-    String query = "search source=" + source + " sourcetype=" + sourceType + " host=" + host;
+    String query =
+        "search source="
+            + source
+            + " sourcetype="
+            + sourceType
+            + " host="
+            + host
+            + " custom_field::*";
     PipelineOperator.Result result =
         pipelineOperator()
             .waitForConditionsAndFinish(

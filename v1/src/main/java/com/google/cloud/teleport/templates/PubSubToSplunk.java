@@ -18,10 +18,6 @@ package com.google.cloud.teleport.templates;
 import com.google.cloud.teleport.coders.FailsafeElementCoder;
 import com.google.cloud.teleport.metadata.Template;
 import com.google.cloud.teleport.metadata.TemplateCategory;
-import com.google.cloud.teleport.splunk.SplunkEvent;
-import com.google.cloud.teleport.splunk.SplunkEventCoder;
-import com.google.cloud.teleport.splunk.SplunkIO;
-import com.google.cloud.teleport.splunk.SplunkWriteError;
 import com.google.cloud.teleport.templates.PubSubToSplunk.PubSubToSplunkOptions;
 import com.google.cloud.teleport.templates.common.ErrorConverters;
 import com.google.cloud.teleport.templates.common.JavascriptTextTransformer.FailsafeJavascriptUdf;
@@ -44,6 +40,9 @@ import org.apache.beam.sdk.coders.CoderRegistry;
 import org.apache.beam.sdk.coders.StringUtf8Coder;
 import org.apache.beam.sdk.io.gcp.pubsub.PubsubIO;
 import org.apache.beam.sdk.io.gcp.pubsub.PubsubMessage;
+import org.apache.beam.sdk.io.splunk.SplunkEvent;
+import org.apache.beam.sdk.io.splunk.SplunkIO;
+import org.apache.beam.sdk.io.splunk.SplunkWriteError;
 import org.apache.beam.sdk.metrics.Counter;
 import org.apache.beam.sdk.metrics.Metrics;
 import org.apache.beam.sdk.options.PipelineOptionsFactory;
@@ -148,7 +147,7 @@ public class PubSubToSplunk {
 
   /**
    * The main entry-point for pipeline execution. This method will start the pipeline but will not
-   * wait for it's execution to finish. If blocking execution is required, use the {@link
+   * wait for its execution to finish. If blocking execution is required, use the {@link
    * PubSubToSplunk#run(PubSubToSplunkOptions)} method to start the pipeline and invoke {@code
    * result.waitUntilFinish()} on the {@link PipelineResult}.
    *
@@ -177,7 +176,6 @@ public class PubSubToSplunk {
 
     // Register coders.
     CoderRegistry registry = pipeline.getCoderRegistry();
-    registry.registerCoderForClass(SplunkEvent.class, SplunkEventCoder.of());
     registry.registerCoderForType(
         FAILSAFE_ELEMENT_CODER.getEncodedTypeDescriptor(), FAILSAFE_ELEMENT_CODER);
 
@@ -235,21 +233,19 @@ public class PubSubToSplunk {
             .get(SPLUNK_EVENT_OUT)
             .apply(
                 "WriteToSplunk",
-                SplunkIO.writeBuilder()
-                    .withToken(
+                SplunkIO.write(
+                        options.getUrl(),
                         new TokenNestedValueProvider(
                             options.getTokenSecretId(),
                             options.getTokenKMSEncryptionKey(),
                             options.getToken(),
                             options.getTokenSource()))
-                    .withUrl(options.getUrl())
                     .withBatchCount(options.getBatchCount())
                     .withParallelism(options.getParallelism())
                     .withDisableCertificateValidation(options.getDisableCertificateValidation())
                     .withRootCaCertificatePath(options.getRootCaCertificatePath())
                     .withEnableBatchLogs(options.getEnableBatchLogs())
-                    .withEnableGzipHttpCompression(options.getEnableGzipHttpCompression())
-                    .build());
+                    .withEnableGzipHttpCompression(options.getEnableGzipHttpCompression()));
 
     // 5a) Wrap write failures into a FailsafeElement.
     PCollection<FailsafeElement<String, String>> wrappedSplunkWriteErrors =
@@ -261,6 +257,10 @@ public class PubSubToSplunk {
                   @ProcessElement
                   public void processElement(ProcessContext context) {
                     SplunkWriteError error = context.element();
+                    LOG.error(
+                        "Encountered error while writing to splunk: {}, {}.",
+                        error.statusCode(),
+                        error.payload());
                     FailsafeElement<String, String> failsafeElement =
                         FailsafeElement.of(error.payload(), error.payload());
 

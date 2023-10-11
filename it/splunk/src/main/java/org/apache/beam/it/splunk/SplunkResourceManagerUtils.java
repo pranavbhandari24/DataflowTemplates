@@ -36,6 +36,7 @@ public final class SplunkResourceManagerUtils {
   private static final String SPLUNK_TIME_KEY = "time";
   private static final String SPLUNK_SOURCE_KEY = "source";
   private static final String SPLUNK_SOURCE_TYPE_KEY = "sourcetype";
+  private static final String SPLUNK_FIELDS_KEY = "fields";
 
   private static final int MIN_PASSWORD_LENGTH = 8;
   private static final int MAX_PASSWORD_LENGTH = 20;
@@ -46,6 +47,7 @@ public final class SplunkResourceManagerUtils {
   public static Map<String, Object> splunkEventToMap(SplunkEvent event) {
     Map<String, Object> eventMap = new HashMap<>();
     eventMap.put(SPLUNK_EVENT_KEY, event.event());
+    eventMap.put(SPLUNK_FIELDS_KEY, event.fields());
     eventMap.put(SPLUNK_HOST_KEY, event.host());
     eventMap.put(SPLUNK_INDEX_KEY, event.index() != null ? event.index() : DEFAULT_SPLUNK_INDEX);
     eventMap.put(SPLUNK_SOURCE_KEY, event.source());

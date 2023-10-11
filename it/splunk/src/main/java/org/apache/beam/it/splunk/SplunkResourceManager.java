@@ -21,6 +21,8 @@ import static org.apache.beam.it.splunk.SplunkResourceManagerUtils.generateHecTo
 import static org.apache.beam.it.splunk.SplunkResourceManagerUtils.generateSplunkPassword;
 import static org.apache.beam.it.splunk.SplunkResourceManagerUtils.splunkEventToMap;
 
+import com.google.common.collect.ImmutableList;
+import com.google.gson.JsonObject;
 import com.splunk.Job;
 import com.splunk.ResultsReader;
 import com.splunk.ResultsReaderXml;
@@ -34,6 +36,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map.Entry;
 import javax.annotation.Nullable;
 import org.apache.beam.it.common.ResourceManager;
 import org.apache.beam.it.testcontainers.TestContainerResourceManager;
@@ -76,6 +79,24 @@ public class SplunkResourceManager extends TestContainerResourceManager<SplunkCo
   private static final int DEFAULT_SPLUNKD_INTERNAL_PORT = 8089;
 
   private static final String DEFAULT_SPLUNK_USERNAME = "admin";
+  private static final List DEFAULT_RESPONSE_KEYS =
+      ImmutableList.of(
+          "_bkt",
+          "_cd",
+          "_serial",
+          "_raw",
+          "splunk_server",
+          "index",
+          "_kv",
+          "source",
+          "_indextime",
+          "_subsecond",
+          "linecount",
+          "_si",
+          "host",
+          "_sourcetype",
+          "sourcetype",
+          "_time");
 
   private final ServiceArgs loginArgs;
   private final int hecPort;
@@ -318,20 +339,27 @@ public class SplunkResourceManager extends TestContainerResourceManager<SplunkCo
     try {
       ResultsReader reader = new ResultsReaderXml(job.getEvents());
       reader.forEach(
-          event ->
-              results.add(
-                  SplunkEvent.newBuilder()
-                      .withEvent(event.get("_raw"))
-                      .withSource(event.get("source"))
-                      .withSourceType(event.get("_sourcetype"))
-                      .withHost(event.get("host"))
-                      .withTime(
-                          OffsetDateTime.parse(
-                                  event.get("_time"), DateTimeFormatter.ISO_OFFSET_DATE_TIME)
-                              .toInstant()
-                              .toEpochMilli())
-                      .withIndex(event.get("index"))
-                      .create()));
+          event -> {
+            SplunkEvent.Builder builder =
+                SplunkEvent.newBuilder()
+                    .withEvent(event.get("_raw"))
+                    .withSource(event.get("source"))
+                    .withSourceType(event.get("_sourcetype"))
+                    .withHost(event.get("host"))
+                    .withTime(
+                        OffsetDateTime.parse(
+                                event.get("_time"), DateTimeFormatter.ISO_OFFSET_DATE_TIME)
+                            .toInstant()
+                            .toEpochMilli())
+                    .withIndex(event.get("index"));
+            JsonObject fields = new JsonObject();
+            for (Entry<String, String> entry : event.entrySet()) {
+              if (!DEFAULT_RESPONSE_KEYS.contains(entry.getKey())) {
+                fields.addProperty(entry.getKey(), entry.getValue());
+              }
+            }
+            results.add(builder.withFields(fields).create());
+          });
 
     } catch (Exception e) {
       throw new SplunkResourceManagerException("Error parsing XML results from Splunk.", e);
